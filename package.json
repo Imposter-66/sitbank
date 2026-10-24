@@ -1,0 +1,16 @@
+{
+  "name": "sitbank",
+  "version": "2.0.0",
+  "description": "SiTBANK — GAKU acct でログインして、プロジェクトをデプロイ。環境変数とサーバー(server.js)にも対応 / KAZUTBANK",
+  "main": "server.js",
+  "private": true,
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": "22.x"
+  },
+  "dependencies": {
+    "express": "^4.21.2"
+  }
+}

@@ -1,0 +1,1303 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
+<title>SiTBANK</title>
+<style>
+  :root {
+    color-scheme: light;
+    --text: #0c1226; --muted: rgba(12,18,38,.58); --faint: rgba(12,18,38,.38);
+    --accent: #0a84ff; --accent-2: #5e5ce6; --ok: #28b463; --warn: #f29a0c; --danger: #ff3b30;
+    --glass: rgba(255,255,255,.44); --glass-strong: rgba(255,255,255,.66);
+    --glass-line: rgba(255,255,255,.72); --hl: rgba(255,255,255,.9);
+    --field: rgba(255,255,255,.55); --field-line: rgba(20,30,70,.1);
+    --btn: rgba(255,255,255,.55); --btn-hover: rgba(255,255,255,.78);
+    --seg-on: rgba(255,255,255,.92);
+    --shadow: 0 18px 50px rgba(36,52,120,.16), 0 2px 10px rgba(36,52,120,.07);
+    --bg-base: #e6eeff;
+    --c1: #7db4ff; --c2: #ffa8d2; --c3: #8cf0d0; --c4: #b9a6ff;
+    --code-bg: rgba(12,18,38,.06);
+    --r-lg: 28px; --r-md: 20px; --r-sm: 14px;
+    --sheen: .55;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      color-scheme: dark;
+      --text: #f4f6ff; --muted: rgba(236,241,255,.62); --faint: rgba(236,241,255,.4);
+      --accent: #409cff; --accent-2: #7d7aff; --ok: #32d74b; --warn: #ffb340; --danger: #ff6961;
+      --glass: rgba(34,40,72,.46); --glass-strong: rgba(48,56,98,.7);
+      --glass-line: rgba(255,255,255,.16); --hl: rgba(255,255,255,.22);
+      --field: rgba(255,255,255,.07); --field-line: rgba(255,255,255,.14);
+      --btn: rgba(255,255,255,.1); --btn-hover: rgba(255,255,255,.18);
+      --seg-on: rgba(255,255,255,.2);
+      --shadow: 0 20px 60px rgba(0,0,0,.45), 0 2px 10px rgba(0,0,0,.3);
+      --bg-base: #080b1c;
+      --c1: #1d5fe0; --c2: #b02a7a; --c3: #0d9a78; --c4: #5a3fd6;
+      --code-bg: rgba(255,255,255,.08);
+      --sheen: .16;
+    }
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    margin: 0; min-height: 100vh; color: var(--text); background: var(--bg-base);
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Noto Sans JP", "Yu Gothic UI", system-ui, sans-serif;
+    line-height: 1.6; -webkit-font-smoothing: antialiased; overflow-x: hidden;
+  }
+  [hidden] { display: none !important; }
+  button, input, textarea, select { font: inherit; color: inherit; }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  code, .mono { font-family: ui-monospace, "SF Mono", Menlo, Consolas, "Noto Sans Mono CJK JP", monospace; }
+
+  /* ---------- 背景 ---------- */
+  .bg { position: fixed; inset: 0; z-index: -1; overflow: hidden; background: var(--bg-base); }
+  .blob { position: absolute; border-radius: 50%; filter: blur(70px); opacity: .85; will-change: transform; animation: drift 30s ease-in-out infinite alternate; }
+  .b1 { width: 52vmax; height: 52vmax; left: -14vmax; top: -18vmax; background: radial-gradient(circle at 40% 40%, var(--c1), transparent 66%); }
+  .b2 { width: 46vmax; height: 46vmax; right: -12vmax; top: 6vmax; background: radial-gradient(circle at 50% 50%, var(--c2), transparent 66%); animation-duration: 36s; animation-delay: -8s; }
+  .b3 { width: 50vmax; height: 50vmax; left: 12vmax; bottom: -26vmax; background: radial-gradient(circle at 50% 50%, var(--c3), transparent 66%); animation-duration: 42s; animation-delay: -16s; }
+  .b4 { width: 34vmax; height: 34vmax; right: 8vmax; bottom: -10vmax; background: radial-gradient(circle at 50% 50%, var(--c4), transparent 66%); animation-duration: 34s; animation-delay: -4s; }
+  @keyframes drift { to { transform: translate3d(7vmax, 5vmax, 0) scale(1.14); } }
+  @media (prefers-reduced-motion: reduce) { .blob { animation: none; } * { transition: none !important; } }
+
+  /* ---------- ガラス ---------- */
+  .glass {
+    position: relative; background: var(--glass);
+    -webkit-backdrop-filter: blur(30px) saturate(190%); backdrop-filter: blur(30px) saturate(190%);
+    border: 1px solid var(--glass-line); border-radius: var(--r-lg);
+    box-shadow: var(--shadow), inset 0 1px 0 var(--hl);
+  }
+  .glass::before {
+    content: ""; position: absolute; inset: 0; border-radius: inherit; pointer-events: none;
+    background: linear-gradient(135deg, rgba(255,255,255,var(--sheen)) 0%, rgba(255,255,255,0) 34%, rgba(255,255,255,0) 66%, rgba(255,255,255,calc(var(--sheen) * .3)) 100%);
+  }
+  .glass > * { position: relative; }
+
+  /* ---------- レイアウト ---------- */
+  .wrap { width: min(1080px, 100% - 32px); margin: 0 auto; }
+  .view { min-height: 100vh; display: flex; flex-direction: column; padding-bottom: 24px; }
+  .view.offscreen { position: fixed; left: -10000px; top: 0; width: 900px; height: 900px; overflow: hidden; pointer-events: none; opacity: 0; }
+  .grow { flex: 1; }
+  footer { text-align: center; color: var(--faint); font-size: 12.5px; padding: 28px 16px 10px; }
+  footer b { color: var(--muted); font-weight: 600; }
+
+  /* ---------- ナビ ---------- */
+  .nav { position: sticky; top: 12px; z-index: 20; margin: 12px auto 0; padding: 10px 12px 10px 16px; display: flex; align-items: center; gap: 12px; border-radius: 999px; }
+  .brand { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 18px; letter-spacing: .01em; cursor: pointer; user-select: none; }
+  .brand small { font-size: 11px; font-weight: 500; color: var(--muted); display: block; margin-top: -4px; letter-spacing: .04em; }
+  .logo { width: 34px; height: 34px; border-radius: 11px; display: grid; place-items: center; color: #fff;
+    background: linear-gradient(145deg, #5ac8fa, #0a84ff 55%, #5e5ce6); box-shadow: inset 0 1px 0 rgba(255,255,255,.6), 0 4px 12px rgba(10,132,255,.4); }
+  .logo svg { width: 20px; height: 20px; }
+  .chip { display: flex; align-items: center; gap: 8px; padding: 4px 14px 4px 4px; border-radius: 999px; background: var(--btn); border: 1px solid var(--glass-line); font-size: 14px; font-weight: 600; max-width: 46vw; }
+  .chip span.nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .avatar { width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; font-size: 13px; font-weight: 700; color: #fff; background: linear-gradient(145deg, #ff9f0a, #ff375f); flex: none; }
+
+  /* ---------- ボタン・入力 ---------- */
+  .btn { appearance: none; display: inline-flex; align-items: center; justify-content: center; gap: 8px; cursor: pointer; font-weight: 600; font-size: 15px;
+    padding: 10px 18px; border-radius: 999px; border: 1px solid var(--glass-line); background: var(--btn); color: var(--text);
+    -webkit-backdrop-filter: blur(16px); backdrop-filter: blur(16px); box-shadow: inset 0 1px 0 var(--hl), 0 2px 8px rgba(20,30,70,.08);
+    transition: transform .15s ease, background .2s, box-shadow .2s; white-space: nowrap; }
+  .btn:hover { background: var(--btn-hover); text-decoration: none; }
+  .btn:active { transform: scale(.96); }
+  .btn:focus-visible, .seg button:focus-visible, .field:focus-visible { outline: 3px solid rgba(10,132,255,.45); outline-offset: 2px; }
+  .btn.primary { color: #fff; border-color: rgba(255,255,255,.4); background: linear-gradient(180deg, #55adff, #0a84ff); box-shadow: inset 0 1px 0 rgba(255,255,255,.55), 0 8px 22px rgba(10,132,255,.4); }
+  .btn.primary:hover { background: linear-gradient(180deg, #6bb8ff, #1a8fff); }
+  .btn.danger { color: var(--danger); }
+  .btn.danger.solid { color: #fff; background: linear-gradient(180deg, #ff7a70, #ff3b30); box-shadow: inset 0 1px 0 rgba(255,255,255,.5), 0 8px 22px rgba(255,59,48,.35); }
+  .btn.sm { padding: 6px 13px; font-size: 13px; gap: 6px; }
+  .btn.icon { padding: 9px; }
+  .btn[disabled] { opacity: .45; pointer-events: none; }
+  .btn svg, .ic { width: 18px; height: 18px; flex: none; }
+  .btn.sm svg { width: 15px; height: 15px; }
+
+  .field { width: 100%; padding: 12px 15px; border-radius: 15px; border: 1px solid var(--field-line); background: var(--field);
+    -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); box-shadow: inset 0 1px 3px rgba(0,0,0,.07); transition: box-shadow .2s, border-color .2s; }
+  .field:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 4px rgba(10,132,255,.22); }
+  textarea.field { resize: vertical; }
+  label.lbl { display: block; font-size: 13px; font-weight: 600; color: var(--muted); margin: 0 0 6px 4px; }
+  .hint { font-size: 12.5px; color: var(--muted); margin: 6px 4px 0; }
+  .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  .stack { display: grid; gap: 16px; }
+
+  .seg { display: inline-flex; gap: 2px; padding: 4px; border-radius: 999px; background: var(--field); border: 1px solid var(--field-line); max-width: 100%; overflow-x: auto; scrollbar-width: none; }
+  .seg::-webkit-scrollbar { display: none; }
+  .seg button { appearance: none; border: 0; background: transparent; cursor: pointer; padding: 8px 16px; border-radius: 999px; font-weight: 600; font-size: 14px; color: var(--muted); white-space: nowrap; display: inline-flex; gap: 7px; align-items: center; transition: background .2s, color .2s, box-shadow .2s; }
+  .seg button svg { width: 16px; height: 16px; }
+  .seg button.on { background: var(--seg-on); color: var(--text); box-shadow: 0 1px 8px rgba(0,0,0,.14), inset 0 1px 0 var(--hl); }
+
+  .badge { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; padding: 3px 10px; border-radius: 999px; background: var(--code-bg); color: var(--muted); }
+  .badge::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+  .badge.ok { color: var(--ok); background: rgba(40,180,99,.14); }
+  .badge.info { color: var(--accent); background: rgba(10,132,255,.14); }
+  .badge.warn { color: var(--warn); background: rgba(242,154,12,.16); }
+  .badge.bad { color: var(--danger); background: rgba(255,59,48,.14); }
+  .badge.plain::before { display: none; }
+
+  /* ---------- ログイン ---------- */
+  .hero { text-align: center; padding: 8vh 16px 4px; }
+  .hero .logo { width: 84px; height: 84px; border-radius: 28px; margin: 0 auto 20px; }
+  .hero .logo svg { width: 48px; height: 48px; }
+  .hero h1 { margin: 0; font-size: clamp(40px, 8vw, 64px); font-weight: 800; letter-spacing: -.02em; line-height: 1.1;
+    background: linear-gradient(120deg, var(--text) 20%, var(--accent) 60%, var(--accent-2)); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .hero p { margin: 12px auto 0; max-width: 560px; color: var(--muted); font-size: 17px; }
+  .login-card { width: min(468px, 100% - 32px); margin: 28px auto 0; padding: 22px 22px 26px; text-align: center; }
+  .login-card h2 { margin: 2px 0 4px; font-size: 20px; }
+  .login-card .sub { margin: 0 0 16px; font-size: 13.5px; color: var(--muted); }
+  .gaku-frame { border-radius: 18px; overflow: hidden; background: rgba(255,255,255,.06); display: flex; justify-content: center; }
+  .gaku-frame iframe { border: 0; width: 420px; max-width: 100%; height: 520px; border-radius: 14px; }
+  .status { margin-top: 14px; min-height: 22px; font-size: 14px; font-weight: 600; color: var(--muted); display: flex; gap: 8px; align-items: center; justify-content: center; flex-wrap: wrap; }
+  .status.err { color: var(--danger); } .status.ok { color: var(--ok); }
+  .spin { width: 16px; height: 16px; border-radius: 50%; border: 2.5px solid var(--faint); border-top-color: var(--accent); animation: spin .8s linear infinite; flex: none; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .steps3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; width: min(720px, 100% - 32px); margin: 26px auto 0; }
+  .steps3 div { padding: 14px 16px; border-radius: var(--r-md); font-size: 13.5px; color: var(--muted); text-align: left; }
+  .steps3 b { display: block; color: var(--text); font-size: 14.5px; margin-bottom: 2px; }
+  .steps3 i { font-style: normal; display: inline-grid; place-items: center; width: 22px; height: 22px; margin-right: 8px; border-radius: 50%; background: var(--accent); color: #fff; font-size: 12px; font-weight: 700; }
+
+  /* ---------- ホーム ---------- */
+  .page-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin: 34px 0 20px; }
+  .page-head h1 { margin: 0; font-size: clamp(28px, 5vw, 38px); letter-spacing: -.01em; line-height: 1.2; }
+  .page-head p { margin: 4px 0 0; color: var(--muted); }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(270px, 1fr)); gap: 16px; }
+  .proj { padding: 20px 20px 16px; cursor: pointer; transition: transform .22s cubic-bezier(.2,.8,.2,1), box-shadow .22s; border-radius: var(--r-md); display: flex; flex-direction: column; gap: 10px; min-height: 168px; }
+  .proj:hover { transform: translateY(-4px); }
+  .proj h3 { margin: 0; font-size: 18px; line-height: 1.3; word-break: break-word; }
+  .proj .url { font-size: 12.5px; color: var(--muted); word-break: break-all; }
+  .proj .meta { margin-top: auto; display: flex; gap: 6px; flex-wrap: wrap; align-items: center; justify-content: space-between; font-size: 12.5px; color: var(--muted); }
+  .proj.new { align-items: center; justify-content: center; text-align: center; border-style: dashed; color: var(--muted); font-weight: 600; }
+  .proj.new .plus { width: 48px; height: 48px; border-radius: 50%; display: grid; place-items: center; background: var(--btn); border: 1px solid var(--glass-line); margin: 0 auto 6px; color: var(--accent); }
+  .proj.new .plus svg { width: 24px; height: 24px; }
+  .empty { text-align: center; padding: 42px 24px; border-radius: var(--r-lg); }
+  .empty h2 { margin: 0 0 6px; } .empty p { margin: 0 0 18px; color: var(--muted); }
+
+  /* ---------- プロジェクト ---------- */
+  .crumb { margin-top: 26px; }
+  .proj-head { padding: 22px 24px; margin-top: 12px; display: flex; gap: 16px; justify-content: space-between; align-items: center; flex-wrap: wrap; }
+  .proj-head h1 { margin: 0; font-size: clamp(24px, 4.4vw, 32px); line-height: 1.2; word-break: break-word; }
+  .urlpill { display: inline-flex; align-items: center; gap: 6px; margin-top: 8px; padding: 5px 6px 5px 14px; border-radius: 999px; background: var(--field); border: 1px solid var(--field-line); font-size: 13px; max-width: 100%; }
+  .urlpill a { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); }
+  .tabs { margin: 18px 0 16px; }
+  .panel { padding: 22px; }
+  .panel h2 { margin: 0 0 4px; font-size: 20px; }
+  .panel > .sub { margin: 0 0 16px; color: var(--muted); font-size: 14px; }
+
+  .drop { border: 2px dashed var(--glass-line); border-radius: var(--r-md); padding: 30px 18px; text-align: center; transition: .2s; background: rgba(255,255,255,.08); }
+  .drop.over { border-color: var(--accent); background: rgba(10,132,255,.14); transform: scale(1.01); }
+  .drop .big { width: 56px; height: 56px; margin: 0 auto 8px; border-radius: 18px; display: grid; place-items: center; color: var(--accent); background: var(--btn); border: 1px solid var(--glass-line); }
+  .drop .big svg { width: 28px; height: 28px; }
+  .drop b { font-size: 17px; } .drop p { margin: 4px 0 14px; color: var(--muted); font-size: 13.5px; }
+  .files { display: grid; gap: 8px; margin-top: 16px; }
+  .frow { display: flex; align-items: center; gap: 12px; padding: 9px 12px; border-radius: 16px; background: var(--field); border: 1px solid var(--field-line); }
+  .frow.removed { opacity: .5; } .frow.removed .nm { text-decoration: line-through; }
+  .frow .thumb { width: 40px; height: 40px; border-radius: 11px; display: grid; place-items: center; background: var(--code-bg); color: var(--muted); overflow: hidden; flex: none; }
+  .frow .thumb img, .frow .thumb video { width: 100%; height: 100%; object-fit: cover; }
+  .frow .thumb svg { width: 20px; height: 20px; }
+  .frow .nm { flex: 1; min-width: 0; font-size: 14px; word-break: break-all; }
+  .frow .sz { font-size: 12.5px; color: var(--muted); white-space: nowrap; }
+  .frow .acts { display: flex; gap: 6px; }
+  .legend { margin-top: 12px; font-size: 12.5px; color: var(--muted); display: flex; gap: 14px; flex-wrap: wrap; }
+
+  .dock { position: sticky; bottom: 16px; z-index: 15; margin: 22px auto 0; width: min(560px, 100%); padding: 10px 10px 10px 22px; border-radius: 999px; display: flex; align-items: center; gap: 12px; justify-content: space-between; }
+  .dock .t { font-size: 14px; font-weight: 600; display: flex; align-items: center; gap: 10px; min-width: 0; }
+  .dock .t span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .success { margin-bottom: 16px; padding: 16px 18px; border-radius: var(--r-md); background: rgba(40,180,99,.14); border: 1px solid rgba(40,180,99,.35); }
+  .success b { font-size: 16px; }
+
+  .envrow { display: grid; grid-template-columns: minmax(120px, 1fr) minmax(140px, 1.6fr) auto; gap: 8px; align-items: center; margin-bottom: 8px; }
+  .envrow .field { padding: 10px 13px; font-size: 14px; }
+  .presets { display: flex; gap: 8px; flex-wrap: wrap; margin: 12px 0 18px; }
+  pre.code { margin: 10px 0 0; padding: 14px 16px; border-radius: 16px; background: var(--code-bg); border: 1px solid var(--field-line); overflow: auto; font-size: 12.5px; line-height: 1.55; max-height: 340px; }
+  .callout { padding: 12px 16px; border-radius: 16px; font-size: 13.5px; background: rgba(10,132,255,.1); border: 1px solid rgba(10,132,255,.25); }
+  .callout.warn { background: rgba(242,154,12,.12); border-color: rgba(242,154,12,.3); }
+  .result { margin-top: 14px; border-radius: 16px; background: var(--code-bg); border: 1px solid var(--field-line); overflow: hidden; }
+  .result .rh { display: flex; gap: 10px; align-items: center; padding: 10px 14px; border-bottom: 1px solid var(--field-line); font-size: 13px; flex-wrap: wrap; }
+  .result pre { margin: 0; padding: 12px 14px; font-size: 12.5px; white-space: pre-wrap; word-break: break-word; max-height: 280px; overflow: auto; }
+  .kv { display: grid; grid-template-columns: 120px 1fr; gap: 6px 14px; font-size: 14px; }
+  .kv dt { color: var(--muted); } .kv dd { margin: 0; word-break: break-all; }
+  .danger-zone { border-color: rgba(255,59,48,.35); }
+
+  /* ---------- モーダル・トースト ---------- */
+  .overlay { position: fixed; inset: 0; z-index: 100; display: grid; place-items: center; padding: 16px; background: rgba(8,12,30,.3); -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); animation: fade .18s ease; }
+  .overlay.out { opacity: 0; transition: opacity .16s; }
+  @keyframes fade { from { opacity: 0; } }
+  .sheet { width: min(480px, 100%); padding: 24px; max-height: 92vh; overflow: auto; animation: pop .28s cubic-bezier(.2,1.1,.3,1); background: var(--glass-strong); }
+  .sheet.wide { width: min(920px, 100%); }
+  @keyframes pop { from { opacity: 0; transform: scale(.94) translateY(10px); } }
+  .sheet h3 { margin: 0 0 4px; font-size: 20px; }
+  .sheet .sub { margin: 0 0 16px; color: var(--muted); font-size: 14px; }
+  .sheet .btns { display: flex; gap: 10px; justify-content: flex-end; margin-top: 20px; flex-wrap: wrap; }
+  .editor { min-height: 52vh; font-size: 13.5px; line-height: 1.55; tab-size: 2; white-space: pre; }
+  #toast { position: fixed; left: 50%; top: 18px; transform: translate(-50%, -180%); opacity: 0; pointer-events: none; visibility: hidden; z-index: 200; padding: 12px 20px; border-radius: 999px; font-size: 14px; font-weight: 600; max-width: min(92vw, 560px); transition: transform .35s cubic-bezier(.2,1.1,.3,1), opacity .25s, visibility 0s .35s; background: var(--glass-strong); }
+  #toast.show { transform: translate(-50%, 0); opacity: 1; visibility: visible; transition-delay: 0s; }
+  #toast.err { color: var(--danger); } #toast.ok { color: var(--ok); }
+  .banner { margin: 16px auto 0; padding: 12px 18px; border-radius: 18px; font-size: 14px; color: var(--danger); background: rgba(255,59,48,.12); border: 1px solid rgba(255,59,48,.3); width: min(720px, 100% - 32px); }
+
+  @media (max-width: 680px) {
+    .steps3 { grid-template-columns: 1fr; }
+    .nav { top: 8px; padding-left: 12px; }
+    .envrow { grid-template-columns: 1fr auto; } .envrow .vcol { grid-column: 1 / -1; order: 3; }
+    .panel { padding: 16px; } .proj-head { padding: 18px; }
+    .kv { grid-template-columns: 1fr; gap: 0; } .kv dd { margin-bottom: 8px; }
+    .dock { padding-left: 16px; } .brand small { display: none; }
+    .chip .nm, .btn .t { display: none; } .chip { padding: 4px; } .nav { gap: 8px; }
+  }
+</style>
+</head>
+<body>
+<div class="bg" aria-hidden="true"><i class="blob b1"></i><i class="blob b2"></i><i class="blob b3"></i><i class="blob b4"></i></div>
+
+<!-- ============ ログイン ============ -->
+<section id="view-login" class="view">
+  <div class="hero">
+    <div class="logo"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9.5 12 4l9 5.5"/><path d="M5 10v7M9.7 10v7M14.3 10v7M19 10v7"/><path d="M3 20h18"/></svg></div>
+    <h1>SiTBANK</h1>
+    <p>ファイルをドロップするだけで、あなたのサイトが自分のURLで公開されます。サーバーや環境変数にも対応。</p>
+  </div>
+  <div id="banner" class="banner" hidden></div>
+  <div class="glass login-card">
+    <h2>GAKU acct でログイン</h2>
+    <p class="sub">クラス・出席番号・パスワード(4けた)を入力してください</p>
+    <div class="gaku-frame">
+      <iframe src="https://script.google.com/a/macros/school.kasugai.ed.jp/s/AKfycbyDnabgy3qc0L6Y4cfwW53tyzPMPS2thg1nd6mAvtIHa5YURK3Tui4c7vCUWt47sCow/exec?embed=1" width="420" height="520" style="border:0;border-radius:12px;max-width:100%" allow="clipboard-write" title="GAKU acct"></iframe>
+    </div>
+    <div id="login-status" class="status"></div>
+  </div>
+  <div class="steps3">
+    <div class="glass"><b><i>1</i>ログイン</b>GAKU acct のアカウントで入ります</div>
+    <div class="glass"><b><i>2</i>プロジェクトを作る</b>名前とURLを決めるだけ</div>
+    <div class="glass"><b><i>3</i>ドロップしてデプロイ</b>HTML・JS・画像・server.js</div>
+  </div>
+  <div class="grow"></div>
+  <footer>© <span class="yr"></span> <b>KAZUTBANK</b> · SiTBANK</footer>
+</section>
+
+<!-- ============ ホーム ============ -->
+<section id="view-home" class="view" hidden>
+  <div class="wrap">
+    <nav class="nav glass">
+      <div class="brand" data-act="home"><div class="logo" data-logo></div><div>SiTBANK<small>by KAZUTBANK</small></div></div>
+      <div class="grow"></div>
+      <div class="chip" id="chip-home"></div>
+      <button class="btn sm" data-act="logout"><span data-ic="logout"></span><span class="t">ログアウト</span></button>
+    </nav>
+    <div class="page-head">
+      <div><h1 id="home-title">プロジェクト</h1><p>作ったサイトの一覧です。選ぶとファイルの追加やデプロイができます。</p></div>
+      <button class="btn primary" data-act="new-project"><span data-ic="plus"></span>新しいプロジェクト</button>
+    </div>
+    <div id="home-body"></div>
+  </div>
+  <div class="grow"></div>
+  <footer>© <span class="yr"></span> <b>KAZUTBANK</b> · SiTBANK</footer>
+</section>
+
+<!-- ============ プロジェクト ============ -->
+<section id="view-project" class="view" hidden>
+  <div class="wrap">
+    <nav class="nav glass">
+      <div class="brand" data-act="home"><div class="logo" data-logo></div><div>SiTBANK<small>by KAZUTBANK</small></div></div>
+      <div class="grow"></div>
+      <div class="chip" id="chip-proj"></div>
+      <button class="btn sm" data-act="logout"><span data-ic="logout"></span><span class="t">ログアウト</span></button>
+    </nav>
+    <div class="crumb"><button class="btn sm" data-act="back"><span data-ic="back"></span>プロジェクト一覧</button></div>
+    <div id="proj-head" class="glass proj-head"></div>
+    <div class="tabs"><div class="seg" id="tabs"></div></div>
+    <div id="proj-body"></div>
+  </div>
+  <div class="grow"></div>
+  <footer>© <span class="yr"></span> <b>KAZUTBANK</b> · SiTBANK</footer>
+</section>
+
+<div id="toast" class="glass" role="status" aria-live="polite"></div>
+<input type="file" id="pick-files" multiple hidden>
+<input type="file" id="pick-folder" webkitdirectory hidden>
+
+<!-- GAKU acct 機能呼び出し(見た目なし) -->
+<script>
+var GakuAcct = (function () {
+  var win = null, n = 0, wait = {}, hooks = [], me = null, proof = '';
+  // 「この埋め込み画面から届いた信号か」を調べる（ほかのサイトからの偽の信号は無視する）
+  // GAS のページは外の枠の中にもう一つ枠がある二重の作りなので、枠の中の窓まで調べる
+  function inTree(w, src, depth) {
+    if (depth > 3) return false;
+    var n = 0; try { n = w.frames.length; } catch (x) {}
+    for (var i = 0; i < n; i++) {
+      var c = null; try { c = w.frames[i]; } catch (x) {}
+      if (c && (c === src || inTree(c, src, depth + 1))) return true;
+    }
+    return false;
+  }
+  function mine(src) {
+    var fs = document.querySelectorAll('iframe');
+    for (var i = 0; i < fs.length; i++) {
+      var w = fs[i].contentWindow;
+      if (w && (w === src || inTree(w, src, 0))) return true;
+    }
+    return false;
+  }
+  function fire(d) { hooks.forEach(function (f) { try { f(d); } catch (x) { console.error(x); } }); }
+  window.addEventListener('message', function (e) {
+    var d = e.data;
+    if (!d || typeof d !== 'object' || !mine(e.source)) return;
+    if (d.type === 'gakuacct') {
+      win = e.source;
+      if (d.event === 'login') { me = d; proof = ''; }
+      else if (d.event === 'update' && me) { for (var k in d) { if (k !== 'type' && k !== 'event') me[k] = d[k]; } }
+      else if (d.event === 'proof') { proof = d.code || ''; if (me) me.code = proof; }
+      else if (d.event === 'logout') { me = null; proof = ''; }
+      fire(d);
+    } else if (d.type === 'gakuacct-result' && wait[d.id]) { wait[d.id](d.result); delete wait[d.id]; }
+  });
+  // 読み込まれたあとに、いまの状態（ログイン中か）を、埋め込み画面に聞く（信号を取りこぼさないため）
+  function each(w, depth) {
+    if (!w || depth > 3) return;
+    try { w.postMessage({ type: 'gakuacct-hello' }, '*'); } catch (x) {}
+    var n = 0; try { n = w.frames.length; } catch (x) {}
+    for (var i = 0; i < n; i++) { try { each(w.frames[i], depth + 1); } catch (x) {} }
+  }
+  function hello() {
+    var fs = document.querySelectorAll('iframe');
+    for (var i = 0; i < fs.length; i++) { each(fs[i].contentWindow, 0); }
+  }
+  [800, 2500, 6000].forEach(function (t) { setTimeout(function () { if (!win) hello(); }, t); });
+  window.addEventListener('load', hello);
+  return {
+    // すべての信号を受け取る。d.event：ready / login / proof / update / logout
+    on: function (f) { hooks.push(f); },
+    // ログインした瞬間に呼ばれる（すでにログイン中なら、すぐに呼ばれる）。d.via：'password'（パスワード）/ 'saved'（保存された情報）/ 'resume'
+    onLogin: function (f) {
+      hooks.push(function (d) { if (d.event === 'login') f(d); });
+      if (me) f(me);
+    },
+    // ログアウトしたときに呼ばれる
+    onLogout: function (f) { hooks.push(function (d) { if (d.event === 'logout') f(d); }); },
+    // いまログインしている人の情報（いなければ null）
+    user: function () { return me; },
+    // 本人確認用の確認コード（届いていなければ ''）
+    code: function () { return proof; },
+    // 機能を、見た目なしで呼び出す
+    call: function (fn, args) {
+      return new Promise(function (ok) {
+        if (!win) { ok({ ok: false, code: 'wait', message: 'GAKU acct がまだ読み込まれていません。' }); return; }
+        var id = ++n, t = setTimeout(function () { delete wait[id]; ok({ ok: false, code: 'timeout', message: '時間切れです。' }); }, 90000);
+        wait[id] = function (r) { clearTimeout(t); ok(r); };
+        win.postMessage({ type: 'gakuacct-call', id: id, fn: fn, args: args || [] }, '*');
+      });
+    }
+  };
+})();
+</script>
+
+<script>
+(() => {
+  'use strict';
+
+  // ======================================================================
+  // 小さな道具
+  // ======================================================================
+  const $ = (s, r = document) => r.querySelector(s);
+  const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const TOKEN_KEY = 'sitbank.token.v1';
+  const lsGet = (k) => { try { return localStorage.getItem(k); } catch { return null; } };
+  const lsSet = (k, v) => { try { localStorage.setItem(k, v); } catch { /* 保存できない環境 */ } };
+  const lsDel = (k) => { try { localStorage.removeItem(k); } catch { /* ignore */ } };
+
+  const IC = {
+    plus: '<path d="M12 5v14M5 12h14"/>',
+    back: '<path d="m15 18-6-6 6-6"/>',
+    logout: '<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="m16 17 5-5-5-5"/><path d="M21 12H9"/>',
+    upload: '<path d="M12 16V4"/><path d="m6.5 9.5 5.5-5.5 5.5 5.5"/><path d="M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3"/>',
+    rocket: '<path d="M5 15c-1.5 1.3-2 5-2 5s3.7-.5 5-2c.7-.8.7-2.1-.1-2.9s-2.1-.8-2.9-.1z"/><path d="m12 15-3-3a22 22 0 0 1 2-3.9A12.9 12.9 0 0 1 22 2c0 2.7-.8 7.5-6 11a22.4 22.4 0 0 1-4 2z"/><path d="M9 12H4s.6-3 2-4c1.6-1.1 5 0 5 0"/><path d="M12 15v5s3-.6 4-2c1.1-1.6 0-5 0-5"/>',
+    folder: '<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>',
+    file: '<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/>',
+    image: '<rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="9" cy="9" r="1.6"/><path d="m21 15-4.5-4.5L5 21"/>',
+    video: '<rect x="3" y="5" width="13" height="14" rx="3"/><path d="m16 10 5-3v10l-5-3"/>',
+    lock: '<rect x="4" y="11" width="16" height="10" rx="2.5"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/>',
+    key: '<circle cx="8" cy="15" r="4"/><path d="m10.8 12.2 9.2-9.2"/><path d="m17 6 3 3"/><path d="m14 9 2 2"/>',
+    server: '<rect x="3" y="3" width="18" height="7" rx="2"/><rect x="3" y="14" width="18" height="7" rx="2"/><path d="M7 6.5h.01M7 17.5h.01"/>',
+    gear: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/>',
+    trash: '<path d="M3 6h18"/><path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2"/><path d="m19 6-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>',
+    edit: '<path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/>',
+    eye: '<path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>',
+    eyeoff: '<path d="M17.9 17.9A10 10 0 0 1 12 19c-6.5 0-10-7-10-7a17 17 0 0 1 4.1-5"/><path d="M9.9 5.2A9.7 9.7 0 0 1 12 5c6.5 0 10 7 10 7a17 17 0 0 1-2.2 3.2"/><path d="M14.1 14.1a3 3 0 0 1-4.2-4.2"/><path d="m2 2 20 20"/>',
+    copy: '<rect x="9" y="9" width="12" height="12" rx="2.5"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>',
+    open: '<path d="M14 4h6v6"/><path d="M20 4 10 14"/><path d="M18 14v5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h5"/>',
+    undo: '<path d="M3 7v6h6"/><path d="M21 17a9 9 0 0 0-15-6.7L3 13"/>',
+    x: '<path d="M18 6 6 18M6 6l12 12"/>',
+    check: '<path d="m5 12.5 4.5 4.5L19 7.5"/>',
+    play: '<path d="M7 4.5v15l12-7.5z"/>',
+    sparkle: '<path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z"/><path d="M19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8z"/>',
+  };
+  const icon = (n, cls = 'ic') => `<svg class="${cls}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${IC[n] || ''}</svg>`;
+  const LOGO = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9.5 12 4l9 5.5"/><path d="M5 10v7M9.7 10v7M14.3 10v7M19 10v7"/><path d="M3 20h18"/></svg>';
+
+  function fillStatic() {
+    document.querySelectorAll('[data-ic]').forEach((el) => { el.outerHTML = icon(el.dataset.ic); });
+    document.querySelectorAll('[data-logo]').forEach((el) => { el.innerHTML = LOGO; });
+    document.querySelectorAll('.yr').forEach((el) => { el.textContent = new Date().getFullYear(); });
+  }
+
+  const fmtBytes = (n) => (n < 1024 ? `${n} B` : n < 1048576 ? `${(n / 1024).toFixed(1)} KB` : `${(n / 1048576).toFixed(1)} MB`);
+  function ago(ms) {
+    if (!ms) return '—';
+    const s = (Date.now() - ms) / 1000;
+    if (s < 60) return 'たった今';
+    if (s < 3600) return Math.floor(s / 60) + '分前';
+    if (s < 86400) return Math.floor(s / 3600) + '時間前';
+    if (s < 86400 * 7) return Math.floor(s / 86400) + '日前';
+    return new Date(ms).toLocaleDateString('ja-JP');
+  }
+  const siteUrl = (id) => `${location.origin}/s/${id}/`;
+
+  let toastTimer;
+  function toast(msg, kind = '') {
+    const t = $('#toast');
+    t.textContent = msg;
+    t.className = 'glass show ' + kind;
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => { t.className = 'glass ' + kind; }, 3600);
+  }
+  async function copyText(text, msg = 'コピーしました') {
+    try { await navigator.clipboard.writeText(text); toast(msg, 'ok'); }
+    catch {
+      const ta = document.createElement('textarea'); ta.value = text; document.body.appendChild(ta); ta.select();
+      try { document.execCommand('copy'); toast(msg, 'ok'); } catch { toast('コピーできませんでした', 'err'); }
+      ta.remove();
+    }
+  }
+
+  // ======================================================================
+  // 状態・API
+  // ======================================================================
+  const S = {
+    cfg: {}, token: lsGet(TOKEN_KEY), user: null, projects: [],
+    proj: null, tab: 'files', files: new Map(), lastDeploy: null,
+    busy: '', env: null, envDirty: false, testOut: null, testBusy: false,
+  };
+
+  async function api(method, url, body, extra = {}) {
+    const headers = { ...(extra.headers || {}) };
+    if (S.token) headers.Authorization = 'Bearer ' + S.token;
+    let payload;
+    if (body !== undefined && body !== null) {
+      if (body instanceof Blob) payload = body;
+      else { headers['Content-Type'] = 'application/json'; payload = JSON.stringify(body); }
+    }
+    let res;
+    try { res = await fetch(url, { method, headers, body: payload }); }
+    catch { throw new Error('通信できませんでした。ネットワークを確認してください'); }
+    const data = await res.json().catch(() => ({}));
+    if (res.status === 401 && S.token && !extra.noAuthRedirect) { forceLogout('ログインの期限が切れました。もう一度ログインしてください'); throw new Error(data.error || 'ログインが必要です'); }
+    if (!res.ok) throw new Error(data.error || `エラー (${res.status})`);
+    return data;
+  }
+
+  // ======================================================================
+  // 画面切り替え
+  // ======================================================================
+  function show(name) {
+    $('#view-login').classList.toggle('offscreen', name !== 'login');
+    $('#view-home').hidden = name !== 'home';
+    $('#view-project').hidden = name !== 'project';
+    window.scrollTo(0, 0);
+  }
+
+  function chipHtml() {
+    const u = S.user || {};
+    const nm = u.name || 'ゲスト';
+    return `<span class="avatar">${esc(nm.slice(0, 1))}</span><span class="nm">${esc(nm)} さん</span>`;
+  }
+
+  // ======================================================================
+  // ログイン (GAKU acct)
+  // ======================================================================
+  let exchanging = false;
+  function setLoginStatus(msg, kind) {
+    const el = $('#login-status');
+    el.className = 'status ' + (kind || '');
+    el.innerHTML = (kind === 'busy' ? '<span class="spin"></span>' : '') + `<span>${esc(msg || '')}</span>`;
+  }
+  function offerContinue() {
+    if (S.token) return;
+    const u = GakuAcct.user();
+    if (!u) return;
+    const el = $('#login-status');
+    el.className = 'status';
+    el.innerHTML = `<span>${esc(u.name || '')} さんでログイン中</span><button class="btn sm primary" data-act="gaku-continue">SiTBANK に入る</button>`;
+  }
+
+  async function exchange(code) {
+    if (S.token || exchanging || !code) return;
+    exchanging = true;
+    setLoginStatus('ログインしています…', 'busy');
+    try {
+      const res = await fetch('/api/auth/gaku', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code }) });
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(j.error || 'ログインできませんでした');
+      S.token = j.token; S.user = j.user; lsSet(TOKEN_KEY, j.token);
+      await enterApp();
+    } catch (e) {
+      setLoginStatus(e.message, 'err');
+      const u = GakuAcct.user();
+      if (u) $('#login-status').insertAdjacentHTML('beforeend', '<button class="btn sm" data-act="gaku-continue">もう一度ためす</button>');
+    } finally { exchanging = false; }
+  }
+
+  async function continueWithGaku() {
+    setLoginStatus('確認コードをもらっています…', 'busy');
+    const r = await GakuAcct.call('proof');
+    if (r && r.ok && r.code) return exchange(r.code);
+    setLoginStatus((r && r.message) || '確認コードをもらえませんでした。ページを開き直してください', 'err');
+  }
+
+  GakuAcct.on((d) => {
+    if (S.token) return;
+    if (d.event === 'login') {
+      setLoginStatus('確認しています…', 'busy');
+      const c = GakuAcct.code();
+      if (c) exchange(c);
+    } else if (d.event === 'proof' && d.code) {
+      exchange(d.code);
+    } else if (d.event === 'ready') {
+      setLoginStatus('', '');
+    }
+  });
+
+  async function enterApp(initial) {
+    const me = await api('GET', '/api/me', undefined, { noAuthRedirect: !!initial });
+    S.user = me.user; S.projects = me.projects;
+    setLoginStatus('', '');
+    route();
+  }
+
+  let loggingOut = false;
+  function resetWork() {
+    S.proj = null; S.files = new Map(); S.env = null; S.envDirty = false; S.lastDeploy = null; S.testOut = null; S.busy = '';
+  }
+  async function doLogout(keepGaku) {
+    if (loggingOut) return;
+    loggingOut = true;
+    S.token = null; S.user = null; S.projects = []; lsDel(TOKEN_KEY); resetWork();
+    show('login'); history.replaceState(null, '', '#/');
+    if (!keepGaku) {
+      setLoginStatus('ログアウトしています…', 'busy');
+      try { await Promise.race([GakuAcct.call('logout'), new Promise((r) => setTimeout(r, 4000))]); } catch { /* ignore */ }
+    }
+    loggingOut = false;
+    setLoginStatus('', '');
+    offerContinue();
+  }
+  // 期限切れなど: GAKU acct 側のログインは残したまま、SiTBANK だけ入り直す
+  function forceLogout(msg) { doLogout(true).then(() => { if (msg) setLoginStatus(msg, 'err'); }); }
+
+  // ======================================================================
+  // ルーティング
+  // ======================================================================
+  function route() {
+    if (!S.token || !S.user) { show('login'); offerContinue(); return; }
+    const parts = location.hash.replace(/^#\/?/, '').split('/');
+    if (parts[0] === 'p' && parts[1]) openProject(decodeURIComponent(parts[1]), parts[2] || 'files');
+    else renderHome();
+  }
+  window.addEventListener('hashchange', route);
+  const go = (h) => { if (location.hash === h) route(); else location.hash = h; };
+
+  // ======================================================================
+  // ホーム
+  // ======================================================================
+  async function renderHome() {
+    resetWork();
+    show('home');
+    $('#chip-home').innerHTML = chipHtml();
+    $('#home-title').textContent = `${S.user.name || ''} さんのプロジェクト`;
+    paintHome();
+    try {
+      const me = await api('GET', '/api/me');
+      S.projects = me.projects; paintHome();
+    } catch { /* 表示はそのまま */ }
+  }
+  function paintHome() {
+    const body = $('#home-body');
+    if (!S.projects.length) {
+      body.innerHTML = `
+        <div class="glass empty">
+          <div class="logo" style="margin:0 auto 14px;width:64px;height:64px;border-radius:22px">${LOGO}</div>
+          <h2>はじめてのプロジェクトを作りましょう</h2>
+          <p>プロジェクトを作って、ファイルをドロップして、デプロイ。たったの3ステップです。</p>
+          <button class="btn primary" data-act="new-project">${icon('plus')}プロジェクトを作る</button>
+        </div>`;
+      return;
+    }
+    const cards = S.projects.slice().sort((a, b) => b.updatedAt - a.updatedAt).map((p) => `
+      <div class="glass proj" data-act="open-project" data-id="${esc(p.id)}" tabindex="0">
+        <div><h3>${esc(p.name)}</h3><div class="url mono">/s/${esc(p.id)}/</div></div>
+        <div class="row">
+          ${p.deployed ? '<span class="badge ok">公開中</span>' : '<span class="badge warn">未デプロイ</span>'}
+          ${p.hasServer ? '<span class="badge info">サーバーあり</span>' : ''}
+        </div>
+        <div class="meta"><span>${p.fileCount} ファイル · ${ago(p.updatedAt)}</span>
+          ${p.deployed ? `<a class="btn sm" href="${esc(p.url)}" target="_blank" rel="noopener" data-stop="1">${icon('open')}開く</a>` : ''}
+        </div>
+      </div>`).join('');
+    body.innerHTML = `<div class="grid">${cards}
+      <div class="glass proj new" data-act="new-project"><div><div class="plus">${icon('plus')}</div>新しいプロジェクト</div></div></div>`;
+  }
+
+  async function newProjectDialog() {
+    if (S.projects.length >= (S.cfg.maxProjects || 15)) return toast(`プロジェクトは${S.cfg.maxProjects || 15}個までです`, 'err');
+    const r = await sheet(`
+      <h3>新しいプロジェクト</h3>
+      <p class="sub">名前と、公開するURLを決めましょう。URLはあとから変えられません。</p>
+      <div class="stack">
+        <div><label class="lbl" for="np-name">プロジェクト名</label><input id="np-name" class="field" maxlength="40" placeholder="例: ぼくのポートフォリオ" autocomplete="off"></div>
+        <div><label class="lbl" for="np-slug">URL名(英小文字・数字・ハイフン / 空なら自動)</label>
+          <input id="np-slug" class="field mono" maxlength="30" placeholder="my-site" autocomplete="off" autocapitalize="off" spellcheck="false">
+          <div class="hint mono" id="np-prev"></div></div>
+      </div>
+      <div class="btns"><button class="btn" data-r="cancel">キャンセル</button><button class="btn primary" data-r="ok">${icon('plus')}作成</button></div>`,
+    { onOpen(el, done) {
+      const name = $('#np-name', el), slug = $('#np-slug', el), prev = $('#np-prev', el);
+      const upd = () => { prev.textContent = `${location.origin}/s/${slug.value.trim().toLowerCase() || '(自動で決まります)'}/`; };
+      slug.addEventListener('input', upd); upd(); name.focus();
+      el.addEventListener('keydown', (e) => { if (e.key === 'Enter') done({ name: name.value, slug: slug.value }); });
+      el.querySelector('[data-r=ok]').addEventListener('click', () => done({ name: name.value, slug: slug.value }));
+    } });
+    if (!r || r === 'cancel') return;
+    try {
+      const p = await api('POST', '/api/projects', { name: r.name, slug: r.slug.trim() });
+      S.projects.push(p);
+      toast('プロジェクトを作りました', 'ok');
+      go('#/p/' + encodeURIComponent(p.id));
+    } catch (e) { toast(e.message, 'err'); }
+  }
+
+  // ======================================================================
+  // モーダル
+  // ======================================================================
+  function sheet(html, { wide = false, onOpen } = {}) {
+    return new Promise((resolve) => {
+      const ov = document.createElement('div');
+      ov.className = 'overlay';
+      ov.innerHTML = `<div class="sheet glass ${wide ? 'wide' : ''}" role="dialog" aria-modal="true">${html}</div>`;
+      document.body.appendChild(ov);
+      const el = ov.firstElementChild;
+      let closed = false;
+      const done = (v) => { if (closed) return; closed = true; document.removeEventListener('keydown', onKey); ov.classList.add('out'); setTimeout(() => ov.remove(), 170); resolve(v); };
+      const onKey = (e) => { if (e.key === 'Escape') done(null); };
+      document.addEventListener('keydown', onKey);
+      ov.addEventListener('mousedown', (e) => { if (e.target === ov) done(null); });
+      el.querySelectorAll('[data-r]').forEach((b) => { if (b.dataset.r !== 'ok' || !onOpen) b.addEventListener('click', () => done(b.dataset.r)); });
+      if (onOpen) { el.querySelectorAll('[data-r=cancel]').forEach((b) => b.addEventListener('click', () => done('cancel'))); onOpen(el, done); }
+    });
+  }
+  async function confirmDialog({ title, message, ok = 'OK', danger = false }) {
+    const r = await sheet(`<h3>${esc(title)}</h3><p class="sub">${esc(message)}</p>
+      <div class="btns"><button class="btn" data-r="cancel">キャンセル</button><button class="btn ${danger ? 'danger solid' : 'primary'}" data-r="ok">${esc(ok)}</button></div>`);
+    return r === 'ok';
+  }
+  async function promptDialog({ title, sub = '', label, value = '', placeholder = '', ok = 'OK', mono = false }) {
+    const r = await sheet(`<h3>${esc(title)}</h3><p class="sub">${esc(sub)}</p>
+      <label class="lbl" for="pd-in">${esc(label)}</label><input id="pd-in" class="field ${mono ? 'mono' : ''}" value="${esc(value)}" placeholder="${esc(placeholder)}" autocomplete="off" autocapitalize="off" spellcheck="false">
+      <div class="btns"><button class="btn" data-r="cancel">キャンセル</button><button class="btn primary" data-r="ok">${esc(ok)}</button></div>`,
+    { onOpen(el, done) {
+      const inp = $('#pd-in', el); inp.focus(); inp.select();
+      const fin = () => done({ v: inp.value });
+      el.addEventListener('keydown', (e) => { if (e.key === 'Enter') fin(); });
+      el.querySelector('[data-r=ok]').addEventListener('click', fin);
+    } });
+    return r && r !== 'cancel' ? r.v : null;
+  }
+
+  // ======================================================================
+  // ファイルの扱い
+  // ======================================================================
+  const TEXT_EXT = new Set(['html', 'htm', 'css', 'js', 'mjs', 'cjs', 'json', 'svg', 'txt', 'md', 'xml', 'csv', 'tsv', 'map', 'webmanifest', 'yml', 'yaml']);
+  const BIN_EXT = new Set(['ico', 'woff', 'woff2', 'ttf', 'otf', 'pdf', 'mp3', 'wav', 'ogg', 'm4a', 'bmp']);
+  const MEDIA_EXT = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'avif', 'mp4', 'mov', 'webm']);
+  const VIDEO_EXT = new Set(['mp4', 'mov', 'webm']);
+  const extOf = (p) => { const n = p.split('/').pop(); const i = n.lastIndexOf('.'); return i < 0 ? '' : n.slice(i + 1).toLowerCase(); };
+  const isPrivate = (p) => p === 'server.js' || p.startsWith('server/');
+  function kindOf(p) {
+    const e = extOf(p);
+    if (isPrivate(p)) return ['js', 'cjs', 'json'].includes(e) ? 'x' : null;
+    if (MEDIA_EXT.has(e)) return 'm';
+    if (TEXT_EXT.has(e)) return 't';
+    if (BIN_EXT.has(e)) return 'b';
+    return null;
+  }
+  function checkPath(p) {
+    if (!p || p.length > 120 || p.endsWith('/')) return 'ファイル名が正しくありません';
+    const segs = p.split('/');
+    if (segs.length > 6) return 'フォルダが深すぎます(6階層まで)';
+    for (const s of segs) {
+      if (s.startsWith('.')) return 'ドットで始まるファイルは使えません';
+      if (!/^[A-Za-z0-9._-]{1,60}$/.test(s)) return '英数字と . _ - だけにしてください';
+    }
+    if (!extOf(p)) return '拡張子が必要です(例: index.html)';
+    return null;
+  }
+  const b64FromBuf = (buf) => {
+    const u = new Uint8Array(buf); let s = '';
+    for (let i = 0; i < u.length; i += 0x8000) s += String.fromCharCode.apply(null, u.subarray(i, i + 0x8000));
+    return btoa(s);
+  };
+  const SKIP = /(^|\/)(node_modules|\.git|\.svn|__MACOSX)(\/|$)|(^|\/)(\.DS_Store|Thumbs\.db)$/;
+
+  function stripCommonRoot(items) {
+    if (!items.length || items.some((i) => !i.path.includes('/'))) return items;
+    const first = items[0].path.split('/')[0];
+    if (items.every((i) => i.path.split('/')[0] === first)) return items.map((i) => ({ ...i, path: i.path.slice(first.length + 1) }));
+    return items;
+  }
+
+  async function addFiles(items) {
+    let added = 0; const notes = [];
+    for (const it of items) {
+      const path = it.path.replace(/^\/+/, '');
+      if (SKIP.test(path)) continue;
+      const bad = checkPath(path);
+      if (bad) { notes.push(`${path}: ${bad}`); continue; }
+      const kind = kindOf(path);
+      if (!kind) { notes.push(`${path}: この種類は公開できません`); continue; }
+      const f = it.file;
+      let rec = { path, kind, status: 'new', size: f.size };
+      if (kind === 'm') {
+        if (f.size > (S.cfg.maxMediaBytes || 4194304)) { notes.push(`${path}: ${fmtBytes(f.size)} は大きすぎます(${fmtBytes(S.cfg.maxMediaBytes || 4194304)}まで)`); continue; }
+        rec.blob = f; rec.url = URL.createObjectURL(f);
+      } else if (kind === 'b') {
+        rec.b64 = b64FromBuf(await f.arrayBuffer());
+      } else {
+        rec.text = await f.text();
+        rec.size = new TextEncoder().encode(rec.text).length;
+      }
+      const orig = origOf(S.files.get(path));
+      if (orig) { rec.orig = orig; rec.replaces = true; }
+      S.files.set(path, rec);
+      added++;
+    }
+    if (S.files.size > (S.cfg.maxFiles || 150)) toast(`ファイルは${S.cfg.maxFiles || 150}個までです`, 'err');
+    if (added) toast(`${added}個のファイルを追加しました。「デプロイ」を押すと公開されます`, 'ok');
+    if (notes.length) toast(notes.slice(0, 2).join(' / ') + (notes.length > 2 ? ` ほか${notes.length - 2}件` : ''), 'err');
+    S.lastDeploy = null;
+    paintTab();
+  }
+
+  async function readEntry(entry, prefix, out) {
+    if (SKIP.test(prefix + entry.name)) return;
+    if (entry.isFile) {
+      const file = await new Promise((ok, ng) => entry.file(ok, ng));
+      out.push({ path: prefix + entry.name, file });
+    } else if (entry.isDirectory) {
+      const reader = entry.createReader();
+      let batch;
+      do {
+        batch = await new Promise((ok, ng) => reader.readEntries(ok, ng));
+        for (const c of batch) await readEntry(c, prefix + entry.name + '/', out);
+      } while (batch.length);
+    }
+  }
+  async function handleDrop(dt) {
+    const entries = [];
+    const files = Array.from(dt.files || []);
+    if (dt.items) for (const it of dt.items) { const e = it.webkitGetAsEntry && it.webkitGetAsEntry(); if (e) entries.push(e); }
+    let out = [];
+    if (entries.length) {
+      for (const e of entries) await readEntry(e, '', out);
+      if (entries.some((e) => e.isDirectory)) out = stripCommonRoot(out);
+    } else out = files.map((f) => ({ path: f.name, file: f }));
+    await addFiles(out);
+  }
+
+  const STARTER_HTML = `<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>はじめてのサイト</title>
+<style>
+  body{margin:0;min-height:100vh;display:grid;place-items:center;font-family:system-ui,sans-serif;background:linear-gradient(135deg,#a1c4fd,#c2e9fb);color:#10203a}
+  main{background:rgba(255,255,255,.55);-webkit-backdrop-filter:blur(20px);backdrop-filter:blur(20px);padding:32px 40px;border-radius:28px;text-align:center;box-shadow:0 20px 60px rgba(30,60,120,.2);margin:16px}
+  button{font:inherit;padding:10px 20px;border:0;border-radius:999px;background:#0a84ff;color:#fff;cursor:pointer}
+</style>
+</head>
+<body>
+<main>
+  <h1>こんにちは、SiTBANK!</h1>
+  <p>このページは SiTBANK からデプロイされました。</p>
+  <button id="b">サーバーに話しかける</button>
+  <p id="out"></p>
+</main>
+<script>
+  document.getElementById('b').onclick = async () => {
+    const out = document.getElementById('out');
+    try {
+      const r = await fetch('api/hello?name=あなた');
+      out.textContent = (await r.json()).message;
+    } catch (e) { out.textContent = 'server.js をデプロイすると、ここに返事が出ます'; }
+  };
+<\/script>
+</body>
+</html>
+`;
+  const STARTER_SERVER = `// SiTBANK サーバー: /s/<ID>/api/... へのアクセスを、ここで受け取ります。
+// ・環境変数は process.env.名前 で読めます(「環境変数」タブで設定)
+// ・通信は fetch が使えます / ファイルの読み書きはできません
+// ・req には method, path, query, headers, body が入っています
+
+module.exports = async (req) => {
+  // 例: /api/hello?name=たろう → { message: "こんにちは、たろう!" }
+  if (req.path === '/api/hello') {
+    return { message: 'こんにちは、' + (req.query.name || 'ゲスト') + '!' };
+  }
+
+  // 例: SerBANK に書き込む(環境変数に SERBANK_BASE_URL と SERBANK_SECRET_KEY を入れておく)
+  if (req.path === '/api/memo' && req.method === 'POST') {
+    const r = await fetch(process.env.SERBANK_BASE_URL + '/data/memo', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', 'X-API-Key': process.env.SERBANK_SECRET_KEY },
+      body: JSON.stringify({ value: req.body }),
+    });
+    return { status: r.status, json: { ok: r.ok } };
+  }
+
+  return { status: 404, json: { error: 'not found' } };
+};
+`;
+  // 「公開中の版」を覚えておく(更新を取り消したときに元へ戻せるように)
+  const origOf = (old) => (!old ? null : old.status === 'new' ? (old.orig || null) : { ...old, status: 'kept' });
+  function addText(path, text) {
+    const orig = origOf(S.files.get(path));
+    S.files.set(path, { path, kind: kindOf(path) || 't', status: 'new', text, size: new TextEncoder().encode(text).length, orig, replaces: !!orig });
+  }
+
+  // ======================================================================
+  // プロジェクト画面
+  // ======================================================================
+  const TABS = [['files', 'ファイル', 'folder'], ['env', '環境変数', 'key'], ['server', 'サーバー', 'server'], ['settings', '設定', 'gear']];
+
+  async function openProject(id, tab) {
+    if (!TABS.some((t) => t[0] === tab)) tab = 'files';
+    S.tab = tab;
+    show('project');
+    $('#chip-proj').innerHTML = chipHtml();
+    if (!S.proj || S.proj.id !== id) {
+      resetWork();
+      $('#proj-head').innerHTML = '<div class="row"><span class="spin"></span><span>読み込み中…</span></div>';
+      $('#proj-body').innerHTML = '';
+      $('#tabs').innerHTML = '';
+      try { await loadProject(id); }
+      catch (e) { toast(e.message, 'err'); return go('#/'); }
+    }
+    paintProject();
+  }
+
+  async function loadProject(id) {
+    const d = await api('GET', '/api/projects/' + encodeURIComponent(id));
+    S.proj = d;
+    S.files = new Map(d.files.map((f) => [f.p, { path: f.p, kind: f.k, status: 'kept', size: f.s, url: f.u }]));
+  }
+
+  const pendingCount = () => [...S.files.values()].filter((f) => f.status !== 'kept').length;
+  const hasServerFile = () => [...S.files.values()].some((f) => f.path === 'server.js' && f.status !== 'removed');
+
+  function paintProject() {
+    const p = S.proj;
+    if (!p) return;
+    const url = siteUrl(p.id);
+    $('#proj-head').innerHTML = `
+      <div style="min-width:0">
+        <div class="row" style="gap:8px;margin-bottom:6px">${p.deployed ? '<span class="badge ok">公開中</span>' : '<span class="badge warn">未デプロイ</span>'}${p.hasServer ? '<span class="badge info">サーバーあり</span>' : ''}</div>
+        <h1>${esc(p.name)}</h1>
+        <div class="urlpill mono"><a href="${esc(url)}" target="_blank" rel="noopener">${esc(url)}</a>
+          <button class="btn sm icon" data-act="copy-url" title="URLをコピー" aria-label="URLをコピー">${icon('copy')}</button></div>
+      </div>
+      <div class="row">${p.deployed ? `<a class="btn primary" href="${esc(url)}" target="_blank" rel="noopener">${icon('open')}サイトを開く</a>` : ''}</div>`;
+    $('#tabs').innerHTML = TABS.map(([k, label, ic]) => `<button class="${S.tab === k ? 'on' : ''}" data-act="tab" data-tab="${k}">${icon(ic)}${label}${k === 'files' && pendingCount() ? ` <span class="badge info plain" style="padding:1px 8px">${pendingCount()}</span>` : ''}</button>`).join('');
+    paintTab();
+  }
+
+  function paintTab() {
+    if (!S.proj) return;
+    const body = $('#proj-body');
+    if (S.tab === 'files') body.innerHTML = filesHtml();
+    else if (S.tab === 'env') { body.innerHTML = envHtml(); if (!S.env) loadEnv(); }
+    else if (S.tab === 'server') body.innerHTML = serverHtml();
+    else body.innerHTML = settingsHtml();
+    $('#tabs').innerHTML = TABS.map(([k, label, ic]) => `<button class="${S.tab === k ? 'on' : ''}" data-act="tab" data-tab="${k}">${icon(ic)}${label}${k === 'files' && pendingCount() ? ` <span class="badge info plain" style="padding:1px 8px">${pendingCount()}</span>` : ''}</button>`).join('');
+  }
+
+  // ---------------- ファイル ----------------
+  function thumbHtml(f) {
+    if (f.kind === 'm') {
+      const v = VIDEO_EXT.has(extOf(f.path));
+      if (f.url && !v) return `<img src="${esc(f.url)}" alt="" loading="lazy">`;
+      return icon(v ? 'video' : 'image');
+    }
+    if (f.kind === 'x') return icon('lock');
+    return icon('file');
+  }
+  const STATUS = { kept: ['ok', '公開中'], new: ['info', '追加'], upd: ['warn', '更新'], removed: ['bad', '削除予定'] };
+
+  function filesHtml() {
+    const list = [...S.files.values()].sort((a, b) => (isPrivate(a.path) - isPrivate(b.path)) || (a.path === 'index.html' ? -1 : b.path === 'index.html' ? 1 : a.path.localeCompare(b.path)));
+    const rows = list.map((f) => {
+      const st = f.status === 'new' && f.replaces ? 'upd' : f.status;
+      const [bk, bl] = STATUS[st];
+      const editable = (f.kind === 't' || f.kind === 'x') && f.status !== 'removed';
+      return `<div class="frow ${f.status === 'removed' ? 'removed' : ''}">
+        <div class="thumb">${thumbHtml(f)}</div>
+        <div class="nm mono">${esc(f.path)} ${f.kind === 'x' ? '<span class="badge plain" title="サーバー用のファイルです。公開はされません">非公開</span>' : ''}</div>
+        <span class="badge ${bk}">${bl}</span>
+        <span class="sz">${fmtBytes(f.size || 0)}</span>
+        <div class="acts">
+          ${editable ? `<button class="btn sm icon" data-act="edit-file" data-path="${esc(f.path)}" title="編集" aria-label="編集">${icon('edit')}</button>` : ''}
+          ${f.status === 'removed'
+            ? `<button class="btn sm icon" data-act="undo-file" data-path="${esc(f.path)}" title="元に戻す" aria-label="元に戻す">${icon('undo')}</button>`
+            : `<button class="btn sm icon danger" data-act="remove-file" data-path="${esc(f.path)}" title="削除" aria-label="削除">${icon('trash')}</button>`}
+        </div></div>`;
+    }).join('');
+
+    const n = pendingCount();
+    const last = S.lastDeploy;
+    const dockText = S.busy
+      ? `<span class="spin"></span><span>${esc(S.busy)}</span>`
+      : n ? `${icon('rocket')}<span>未デプロイの変更が ${n} 件あります</span>` : `${icon('check')}<span>${S.files.size ? '変更はありません' : 'ファイルを追加してください'}</span>`;
+
+    return `
+      ${last ? `<div class="success"><div class="row" style="justify-content:space-between"><div><b>公開しました</b><div class="hint" style="margin:2px 0 0">${esc(siteUrl(last.id))}</div></div>
+        <div class="row"><a class="btn sm primary" href="${esc(siteUrl(last.id))}" target="_blank" rel="noopener">${icon('open')}開く</a><button class="btn sm" data-act="copy-url">${icon('copy')}コピー</button></div></div></div>` : ''}
+      <div class="glass panel">
+        <h2>ファイル</h2>
+        <p class="sub">ファイルやフォルダをここにドロップ。<span class="mono">index.html</span> があるとトップページになります。</p>
+        <div class="drop" id="dropzone">
+          <div class="big">${icon('upload')}</div>
+          <b>ここにドロップ</b>
+          <p>HTML / CSS / JS / 画像 / 動画 / <span class="mono">server.js</span> など · フォルダごとでもOK</p>
+          <div class="row" style="justify-content:center">
+            <button class="btn" data-act="pick-files">${icon('file')}ファイルを選ぶ</button>
+            <button class="btn" data-act="pick-folder">${icon('folder')}フォルダを選ぶ</button>
+            <button class="btn" data-act="new-file">${icon('plus')}新しいファイル</button>
+            ${S.files.size === 0 ? `<button class="btn" data-act="starter">${icon('sparkle')}サンプルを入れてみる</button>` : ''}
+          </div>
+        </div>
+        ${S.files.size ? `<div class="files">${rows}</div>
+        <div class="legend"><span>画像・動画は${fmtBytes(S.cfg.maxMediaBytes || 4194304)}まで</span><span>server.js と server/ は非公開(サーバー用)</span></div>` : ''}
+      </div>
+      <div class="dock glass"><div class="t">${dockText}</div>
+        <button class="btn primary" data-act="deploy" ${(!n || S.busy) ? 'disabled' : ''}>${icon('rocket')}デプロイ</button></div>`;
+  }
+
+  async function editFile(path) {
+    const f = S.files.get(path);
+    let text = '';
+    if (f) {
+      text = f.text;
+      if (text === undefined) {
+        try {
+          const r = await api('GET', `/api/projects/${encodeURIComponent(S.proj.id)}/file?path=${encodeURIComponent(path)}`);
+          if (r.kind !== 'text') return toast('このファイルは文字として編集できません', 'err');
+          text = r.content;
+        } catch (e) { return toast(e.message, 'err'); }
+      }
+    }
+    const out = await sheet(`<h3 class="mono" style="font-size:17px">${esc(path)}</h3>
+      <p class="sub">${isPrivate(path) ? 'サーバー用のファイルです(公開されません)。' : '編集したあと「デプロイ」を押すと反映されます。'}</p>
+      <textarea id="ed" class="field mono editor" spellcheck="false" autocapitalize="off"></textarea>
+      <div class="btns"><button class="btn" data-r="cancel">キャンセル</button><button class="btn primary" data-r="ok">${icon('check')}変更を保存</button></div>`,
+    { wide: true, onOpen(el, done) {
+      const ta = $('#ed', el); ta.value = text; ta.focus();
+      ta.addEventListener('keydown', (e) => {
+        if (e.key === 'Tab') { e.preventDefault(); ta.setRangeText('  ', ta.selectionStart, ta.selectionEnd, 'end'); }
+        if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 's') { e.preventDefault(); done({ v: ta.value }); }
+      });
+      el.querySelector('[data-r=ok]').addEventListener('click', () => done({ v: ta.value }));
+    } });
+    if (!out || out === 'cancel') return;
+    if (f && out.v === text && f.status === 'kept') return;
+    addText(path, out.v);
+    S.lastDeploy = null;
+    paintProject();
+  }
+
+  async function newFile() {
+    const v = await promptDialog({ title: '新しいファイル', sub: 'フォルダは / で区切れます(例: css/style.css)', label: 'ファイル名', value: S.files.has('index.html') ? '' : 'index.html', placeholder: 'index.html', ok: '作成して編集', mono: true });
+    if (v === null) return;
+    const path = v.trim().replace(/^\/+/, '');
+    const k = kindOf(path);
+    const bad = checkPath(path) || (k === null ? 'この種類は作れません' : (k === 'm' || k === 'b') ? '画像などはドロップで追加してください' : null);
+    if (bad) return toast(bad, 'err');
+    editFile(path);
+  }
+
+  async function deploy() {
+    if (S.busy) return;
+    const live = [...S.files.values()].filter((f) => f.status !== 'removed');
+    if (!live.some((f) => f.path === 'index.html') && !live.some((f) => f.path === 'server.js')) return toast('index.html(または server.js)が必要です', 'err');
+    const id = S.proj.id;
+    const entries = [];
+    const media = live.filter((f) => f.status === 'new' && f.kind === 'm');
+    try {
+      let i = 0;
+      for (const f of media) {
+        i++; S.busy = `アップロード中 (${i}/${media.length}) ${f.path}`; paintTab();
+        const r = await api('POST', `/api/projects/${encodeURIComponent(id)}/media`, f.blob, { headers: { 'X-Site-Path': encodeURIComponent(f.path), 'Content-Type': 'application/octet-stream' } });
+        f.ticket = r.ticket;
+      }
+      S.busy = 'デプロイしています…'; paintTab();
+      for (const f of live) {
+        if (f.status === 'kept') entries.push({ path: f.path, keep: true });
+        else if (f.kind === 'm') entries.push({ path: f.path, ticket: f.ticket });
+        else if (f.kind === 'b') entries.push({ path: f.path, enc: 'b64', data: f.b64 });
+        else entries.push({ path: f.path, enc: 'utf8', data: f.text });
+      }
+      await api('POST', `/api/projects/${encodeURIComponent(id)}/deploy`, { entries });
+      await loadProject(id);
+      S.lastDeploy = { id };
+      const idx = S.projects.findIndex((p) => p.id === id);
+      if (idx >= 0) S.projects[idx] = { ...S.projects[idx], deployed: true, hasServer: S.proj.hasServer, fileCount: S.proj.fileCount, updatedAt: S.proj.updatedAt };
+      S.busy = '';
+      toast('デプロイできました!', 'ok');
+      paintProject();
+    } catch (e) {
+      S.busy = ''; paintProject();
+      toast(e.message, 'err');
+    }
+  }
+
+  // ---------------- 環境変数 ----------------
+  async function loadEnv() {
+    try {
+      const r = await api('GET', `/api/projects/${encodeURIComponent(S.proj.id)}/env`);
+      S.env = r.vars.map((v) => ({ key: v.key, value: v.value, show: false }));
+      S.envDirty = false;
+      if (S.tab === 'env') $('#proj-body').innerHTML = envHtml();
+    } catch (e) { toast(e.message, 'err'); }
+  }
+  const PRESETS = {
+    serbank: [['SERBANK_BASE_URL', 'https://serbank.onrender.com/p/e3f7d6c63aa9'], ['SERBANK_PUBLIC_KEY', ''], ['SERBANK_SECRET_KEY', '']],
+  };
+  function envHtml() {
+    if (!S.env) return '<div class="glass panel"><div class="row"><span class="spin"></span><span>読み込み中…</span></div></div>';
+    const rows = S.env.map((r, i) => `<div class="envrow">
+      <input class="field mono" data-env="key" data-i="${i}" value="${esc(r.key)}" placeholder="NAME" autocomplete="off" autocapitalize="characters" spellcheck="false" aria-label="名前">
+      <div class="vcol"><input class="field mono" data-env="value" data-i="${i}" type="${r.show ? 'text' : 'password'}" value="${esc(r.value)}" placeholder="値" autocomplete="new-password" spellcheck="false" aria-label="値"></div>
+      <div class="row" style="gap:6px;flex-wrap:nowrap"><button class="btn sm icon" data-act="env-eye" data-i="${i}" title="${r.show ? '隠す' : '表示'}" aria-label="表示切り替え">${icon(r.show ? 'eyeoff' : 'eye')}</button>
+      <button class="btn sm icon danger" data-act="env-del" data-i="${i}" title="削除" aria-label="削除">${icon('trash')}</button></div></div>`).join('');
+    return `<div class="glass panel">
+      <h2>環境変数</h2>
+      <p class="sub">パスワードやAPIキーなど「人に見せたくない値」を入れる場所です。<span class="mono">server.js</span> の中で <span class="mono">process.env.NAME</span> として読めます。保存すると、デプロイし直さなくてもすぐ反映されます。</p>
+      <div class="callout" style="margin-bottom:14px">値は暗号化して保存され、ブラウザ側(公開されるHTMLやJS)には渡りません。SerBANK の Secret キーは、必ずここに入れてください。</div>
+      <div class="presets"><span class="hint" style="margin:0 6px 0 0;align-self:center">かんたん追加:</span>
+        <button class="btn sm" data-act="env-preset" data-p="serbank">${icon('plus')}SerBANK</button>
+        <button class="btn sm" data-act="env-add">${icon('plus')}空の変数</button></div>
+      <div id="envrows">${rows || '<div class="hint" style="margin:8px 4px 14px">まだ環境変数はありません。「かんたん追加」から始めましょう。</div>'}</div>
+      <div class="row" style="justify-content:space-between;margin-top:14px"><span class="hint" style="margin:0">${S.env.length} / ${S.cfg.maxEnv || 30} 個</span>
+        <button class="btn primary" id="env-save" data-act="env-save" ${S.envDirty ? '' : 'disabled'}>${icon('check')}保存</button></div>
+    </div>`;
+  }
+  async function saveEnv() {
+    const vars = S.env.filter((r) => r.key.trim() || r.value).map((r) => ({ key: r.key.trim(), value: r.value }));
+    try {
+      const r = await api('PUT', `/api/projects/${encodeURIComponent(S.proj.id)}/env`, { vars });
+      S.env = r.vars.map((v) => ({ key: v.key, value: v.value, show: false }));
+      S.envDirty = false;
+      toast('環境変数を保存しました', 'ok');
+      $('#proj-body').innerHTML = envHtml();
+    } catch (e) { toast(e.message, 'err'); }
+  }
+
+  // ---------------- サーバー ----------------
+  function serverHtml() {
+    const p = S.proj;
+    const url = siteUrl(p.id);
+    if (!S.cfg.serverCode) {
+      return `<div class="glass panel"><h2>サーバー</h2><div class="callout warn">この SiTBANK では、サーバー機能(server.js)は使えません。管理者にたずねてください。</div></div>`;
+    }
+    const stateBadge = p.hasServer
+      ? '<span class="badge ok">server.js 動作中</span>'
+      : hasServerFile() ? '<span class="badge warn">デプロイすると動き出します</span>' : '<span class="badge plain">server.js がありません</span>';
+    const t = S.testOut;
+    return `
+      <div class="glass panel">
+        <div class="row" style="justify-content:space-between"><h2 style="margin:0">サーバー</h2>${stateBadge}</div>
+        <p class="sub" style="margin-top:6px">プロジェクトに <span class="mono">server.js</span> を入れてデプロイすると、<span class="mono">${esc(url)}api/…</span> へのアクセスがそのプログラムで処理されます(Vercel や Render のサーバーのように)。</p>
+        <div class="row" style="margin-bottom:6px">
+          ${hasServerFile() ? '' : `<button class="btn primary" data-act="add-server">${icon('plus')}サンプルの server.js を追加</button>`}
+          <button class="btn" data-act="tab" data-tab="env">${icon('key')}環境変数をひらく</button>
+        </div>
+        <pre class="code mono">// server.js
+module.exports = async (req) =&gt; {
+  // req.method / req.path / req.query / req.headers / req.body
+  // process.env.NAME … 「環境変数」タブの値
+  return { message: 'hello' };            // そのまま JSON で返ります
+  // return { status: 404, json: {...} }; // ステータスを指定するとき
+};</pre>
+        <p class="hint">${S.cfg.serverTimeoutSec || 8}秒以内に返事をしてください。使える標準モジュール: crypto, url, util, buffer, path, zlib ほか / 通信は fetch。ファイルの読み書き・他プロセスの起動はできません。</p>
+      </div>
+      <div class="glass panel" style="margin-top:16px">
+        <h2>試してみる</h2>
+        <p class="sub">デプロイ済みの server.js に、テストのリクエストを送れます。エラーやログ(console.log)は、あなたにだけ見えます。</p>
+        <div class="row" style="flex-wrap:nowrap;align-items:stretch">
+          <select id="t-method" class="field" style="width:110px;flex:none" aria-label="メソッド">${['GET', 'POST', 'PUT', 'DELETE'].map((m) => `<option>${m}</option>`).join('')}</select>
+          <input id="t-path" class="field mono" value="/api/hello?name=たろう" aria-label="パス" spellcheck="false">
+          <button class="btn primary" data-act="run-test" ${(!p.hasServer || S.testBusy) ? 'disabled' : ''}>${S.testBusy ? '<span class="spin"></span>' : icon('play')}実行</button>
+        </div>
+        <textarea id="t-body" class="field mono" rows="3" placeholder='送るデータ(JSON など / POST のとき)' style="margin-top:10px" spellcheck="false"></textarea>
+        ${t ? `<div class="result"><div class="rh"><span class="badge ${t.status < 400 ? 'ok' : 'bad'}">${t.status}</span><span>${t.ms} ms</span></div>
+          ${t.error ? `<pre style="color:var(--danger)">${esc(t.error)}${t.stack ? '\n\n' + esc(t.stack) : ''}</pre>` : ''}
+          ${t.body ? `<pre>${esc(prettyBody(t.body))}</pre>` : ''}
+          ${t.logs && t.logs.length ? `<div class="rh" style="border-top:1px solid var(--field-line)"><b>ログ</b></div><pre>${esc(t.logs.join('\n'))}</pre>` : ''}</div>` : ''}
+      </div>`;
+  }
+  const prettyBody = (s) => { try { return JSON.stringify(JSON.parse(s), null, 2); } catch { return s; } };
+  async function runTest() {
+    const method = $('#t-method').value, path = $('#t-path').value, body = $('#t-body').value;
+    S.testBusy = true; $('#proj-body').innerHTML = serverHtml();
+    try { S.testOut = await api('POST', `/api/projects/${encodeURIComponent(S.proj.id)}/server-test`, { method, path, body }); }
+    catch (e) { S.testOut = { status: 0, ms: 0, error: e.message, logs: [] }; }
+    S.testBusy = false; $('#proj-body').innerHTML = serverHtml();
+    $('#t-method').value = method; $('#t-path').value = path; $('#t-body').value = body;
+  }
+
+  // ---------------- 設定 ----------------
+  function settingsHtml() {
+    const p = S.proj;
+    return `
+      <div class="glass panel">
+        <h2>プロジェクトの設定</h2>
+        <div class="stack" style="margin-top:14px">
+          <div><label class="lbl" for="set-name">プロジェクト名</label>
+            <div class="row" style="flex-wrap:nowrap"><input id="set-name" class="field" maxlength="40" value="${esc(p.name)}"><button class="btn primary" data-act="rename">保存</button></div></div>
+          <dl class="kv">
+            <dt>公開URL</dt><dd class="mono">${esc(siteUrl(p.id))}</dd>
+            <dt>作成</dt><dd>${new Date(p.createdAt).toLocaleString('ja-JP')}</dd>
+            <dt>最後のデプロイ</dt><dd>${p.deployed ? new Date(p.updatedAt).toLocaleString('ja-JP') + `(${p.deploys || 0}回)` : 'まだありません'}</dd>
+            <dt>ファイル</dt><dd>${p.fileCount} 個</dd>
+          </dl>
+        </div>
+      </div>
+      <div class="glass panel danger-zone" style="margin-top:16px">
+        <h2 style="color:var(--danger)">プロジェクトの削除</h2>
+        <p class="sub">サイト・ファイル・環境変数がすべて消えます。元には戻せません。</p>
+        <button class="btn danger" data-act="delete-project">${icon('trash')}このプロジェクトを削除</button>
+      </div>`;
+  }
+
+  // ======================================================================
+  // イベント
+  // ======================================================================
+  const ACT = {
+    home: () => go('#/'),
+    back: async () => {
+      if (pendingCount() && !(await confirmDialog({ title: '未デプロイの変更があります', message: 'このまま戻ると、追加・編集したファイルは消えます。よろしいですか?', ok: '戻る', danger: true }))) return;
+      go('#/');
+    },
+    logout: () => doLogout(false),
+    'gaku-continue': () => continueWithGaku(),
+    'new-project': () => newProjectDialog(),
+    'open-project': (el) => go('#/p/' + encodeURIComponent(el.dataset.id)),
+    tab: (el) => go(`#/p/${encodeURIComponent(S.proj.id)}/${el.dataset.tab}`),
+    'copy-url': () => copyText(siteUrl(S.proj.id), 'URLをコピーしました'),
+    'pick-files': () => $('#pick-files').click(),
+    'pick-folder': () => $('#pick-folder').click(),
+    'new-file': () => newFile(),
+    starter: () => { addText('index.html', STARTER_HTML); addText('server.js', STARTER_SERVER); paintProject(); toast('サンプルを追加しました。「デプロイ」を押してみましょう', 'ok'); },
+    'add-server': () => { addText('server.js', STARTER_SERVER); toast('server.js を追加しました。「デプロイ」を押すと動き出します', 'ok'); go(`#/p/${encodeURIComponent(S.proj.id)}/files`); paintProject(); },
+    'edit-file': (el) => editFile(el.dataset.path),
+    'remove-file': (el) => {
+      const f = S.files.get(el.dataset.path); if (!f) return;
+      if (f.status === 'kept') f.status = 'removed';
+      else if (f.orig) S.files.set(f.path, { ...f.orig, status: 'removed' });
+      else S.files.delete(f.path);
+      S.lastDeploy = null; paintProject();
+    },
+    'undo-file': (el) => { const f = S.files.get(el.dataset.path); if (f) f.status = 'kept'; paintProject(); },
+    deploy: () => deploy(),
+    'env-add': () => { S.env.push({ key: '', value: '', show: true }); S.envDirty = true; $('#proj-body').innerHTML = envHtml(); const k = document.querySelectorAll('[data-env=key]'); k[k.length - 1] && k[k.length - 1].focus(); },
+    'env-preset': (el) => {
+      for (const [k, v] of PRESETS[el.dataset.p]) if (!S.env.some((r) => r.key === k)) S.env.push({ key: k, value: v, show: !!v });
+      S.envDirty = true; $('#proj-body').innerHTML = envHtml();
+      const empty = S.env.findIndex((r) => !r.value); const f = document.querySelector(`[data-env=value][data-i="${empty}"]`); if (f) f.focus();
+    },
+    'env-eye': (el) => { const r = S.env[+el.dataset.i]; r.show = !r.show; $('#proj-body').innerHTML = envHtml(); },
+    'env-del': (el) => { S.env.splice(+el.dataset.i, 1); S.envDirty = true; $('#proj-body').innerHTML = envHtml(); },
+    'env-save': () => saveEnv(),
+    'run-test': () => runTest(),
+    rename: async () => {
+      try {
+        const p = await api('PUT', `/api/projects/${encodeURIComponent(S.proj.id)}`, { name: $('#set-name').value });
+        S.proj.name = p.name; const i = S.projects.findIndex((x) => x.id === p.id); if (i >= 0) S.projects[i].name = p.name;
+        toast('名前を変えました', 'ok'); paintProject();
+      } catch (e) { toast(e.message, 'err'); }
+    },
+    'delete-project': async () => {
+      const name = S.proj.name;
+      const v = await promptDialog({ title: 'プロジェクトを削除', sub: `確認のため、プロジェクト名「${name}」を入力してください。`, label: 'プロジェクト名', placeholder: name, ok: '削除する' });
+      if (v === null) return;
+      if (v.trim() !== name) return toast('名前が一致しません', 'err');
+      try {
+        await api('DELETE', `/api/projects/${encodeURIComponent(S.proj.id)}`);
+        S.projects = S.projects.filter((x) => x.id !== S.proj.id);
+        toast('削除しました', 'ok'); go('#/');
+      } catch (e) { toast(e.message, 'err'); }
+    },
+  };
+
+  document.addEventListener('click', (e) => {
+    if (e.target.closest('[data-stop]')) { e.stopPropagation(); return; }
+    const el = e.target.closest('[data-act]');
+    if (!el || !ACT[el.dataset.act]) return;
+    e.preventDefault();
+    ACT[el.dataset.act](el, e);
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && e.target.matches && e.target.matches('.proj[data-act]')) { e.preventDefault(); ACT[e.target.dataset.act](e.target, e); }
+  });
+  document.addEventListener('input', (e) => {
+    const t = e.target;
+    if (t.dataset && t.dataset.env) {
+      const r = S.env[+t.dataset.i]; if (!r) return;
+      r[t.dataset.env] = t.value; S.envDirty = true;
+      const b = $('#env-save'); if (b) b.disabled = false;
+    }
+  });
+
+  // ドロップ・ファイル選択
+  ['dragenter', 'dragover'].forEach((t) => document.addEventListener(t, (e) => {
+    const dz = e.target.closest && e.target.closest('#dropzone');
+    if (e.dataTransfer && [...(e.dataTransfer.types || [])].includes('Files')) { e.preventDefault(); if (dz) dz.classList.add('over'); }
+  }));
+  document.addEventListener('dragleave', (e) => { const dz = $('#dropzone'); if (dz && !dz.contains(e.relatedTarget)) dz.classList.remove('over'); });
+  document.addEventListener('drop', (e) => {
+    if (!(e.dataTransfer && [...(e.dataTransfer.types || [])].includes('Files'))) return;
+    e.preventDefault();
+    const dz = $('#dropzone'); if (dz) dz.classList.remove('over');
+    if (S.proj && S.tab === 'files' && !$('#view-project').hidden) handleDrop(e.dataTransfer);
+  });
+  $('#pick-files').addEventListener('change', async (e) => { const l = [...e.target.files].map((f) => ({ path: f.name, file: f })); e.target.value = ''; await addFiles(l); });
+  $('#pick-folder').addEventListener('change', async (e) => {
+    const l = stripCommonRoot([...e.target.files].map((f) => ({ path: f.webkitRelativePath || f.name, file: f })));
+    e.target.value = ''; await addFiles(l);
+  });
+  window.addEventListener('beforeunload', (e) => { if (S.token && pendingCount()) { e.preventDefault(); e.returnValue = ''; } });
+
+  // ======================================================================
+  // 起動
+  // ======================================================================
+  (async function init() {
+    fillStatic();
+    try { S.cfg = await fetch('/api/config').then((r) => r.json()); } catch { S.cfg = {}; }
+    if (S.cfg.configured === false) { const b = $('#banner'); b.hidden = false; b.textContent = 'サーバーに SERBANK_SECRET_KEY が設定されていません。README の手順で環境変数を設定してください。'; }
+    if (S.token) {
+      try { await enterApp(true); return; }
+      catch { S.token = null; lsDel(TOKEN_KEY); }
+    }
+    show('login');
+    offerContinue();
+  })();
+})();
+</script>
+</body>
+</html>
