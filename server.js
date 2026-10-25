@@ -42,6 +42,8 @@ const MAX_ENV = 30;
 const META_TTL = 5000;
 
 const ID_RE = /^[a-z0-9][a-z0-9-]{2,29}$/;
+// ファイル名の1区切り: 日本語を含む文字・数字と . _ - ( ) （ ） ・
+const FILE_SEG_RE = /^[\p{L}\p{N}\p{M}._\-()（）・]{1,60}$/u;
 const ENV_KEY_RE = /^[A-Za-z_][A-Za-z0-9_]{0,49}$/;
 const ENV_RESERVED = /^(NODE_|LD_|DYLD_|UV_|OPENSSL_|SSL_CERT|SITBANK)/i;
 
@@ -285,13 +287,13 @@ function cleanName(name, what = '名前') {
 }
 
 function cleanPath(p) {
-  p = String(p || '').replace(/^\.?\/+/, '');
+  p = String(p || '').normalize('NFC').replace(/^\.?\/+/, ''); // Mac の濃点(NFD)も NFC にそろえる
   if (!p || p.length > 120 || p.endsWith('/')) throw fail(400, `ファイル名が正しくありません: ${p}`);
   const segs = p.split('/');
   if (segs.length > 6) throw fail(400, `${p}: フォルダが深すぎます(6階層まで)`);
   for (const s of segs) {
     if (s.startsWith('.')) throw fail(400, `${p}: ドットで始まるファイルは使えません(.env などは「環境変数」に入れてください)`);
-    if (!/^[A-Za-z0-9._-]{1,60}$/.test(s)) throw fail(400, `${p}: ファイル名は英数字と . _ - だけにしてください`);
+    if (!FILE_SEG_RE.test(s)) throw fail(400, `${p}: ファイル名には、日本語・英数字と . _ - ( ) だけが使えます(スペースや記号は使えません)`);
   }
   if (!extOf(p)) throw fail(400, `${p}: 拡張子が必要です`);
   return p;
@@ -904,7 +906,7 @@ app.all('/s/:id/*', bodyParser, wrap(async (req, res) => {
   if (!meta) return siteText(res, 404, 'このサイトは見つかりません');
 
   let rel;
-  try { rel = decodeURIComponent(req.params[0] || ''); } catch { return siteText(res, 400, 'Bad Request'); }
+  rel = String(req.params[0] || '').normalize('NFC'); // Express がURLの %E3.. を日本語に戻し済み
   if (rel.includes('\0') || rel.includes('\\') || rel.split('/').some((s) => s === '..')) return siteText(res, 400, 'Bad Request');
   rel = rel.replace(/^\/+/, '');
 
