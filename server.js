@@ -69,6 +69,7 @@ const mw = (fn) => (req, res, next) => Promise.resolve(fn(req, res)).then(() => 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const b64u = (b) => Buffer.from(b).toString('base64url');
 const sha1 = (s) => crypto.createHash('sha1').update(s).digest('hex');
+const escHtml = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const extOf = (p) => { const n = p.split('/').pop(); const i = n.lastIndexOf('.'); return i < 0 ? '' : n.slice(i + 1).toLowerCase(); };
 
 function safeEq(a, b) {
@@ -577,7 +578,8 @@ async function doDeploy(id, aid, entries) {
     }
 
     if (Object.keys(media).length > MAX_MEDIA) throw fail(400, `画像・動画は最大${MAX_MEDIA}個までです`);
-    if (!pub['index.html'] && !priv['server.js']) throw fail(400, 'index.html(または server.js)が必要です');
+    // index.html も server.js も必須ではない(abc.html だけ、画像だけ、でもデプロイできる)
+    if (!manifest.length) throw fail(400, 'ファイルがありません');
 
     const pubChunks = Object.keys(pub).length ? packPublic(pub) : [];
     const privChunks = Object.keys(priv).length ? packPrivate(priv) : [];
@@ -943,6 +945,24 @@ app.all('/s/:id/*', bodyParser, wrap(async (req, res) => {
   const cands = (rel === '' || rel.endsWith('/')) ? [rel + 'index.html'] : [rel, rel + '.html', rel + '/index.html'];
   let hit = null;
   for (const c of cands) { const f = idx.get(c); if (f && f.k !== 'x') { hit = f; break; } }
+
+  // トップに index.html が無いとき: HTML が1つならそれを、複数なら一覧ページを出す
+  if (!hit && rel === '') {
+    const pages = [...idx.values()].filter((f) => f.k === 't' && /\.html?$/i.test(f.p) && f.p !== '404.html').sort((a, b) => a.p.localeCompare(b.p));
+    const href = (p) => p.split('/').map(encodeURIComponent).join('/');
+    if (pages.length === 1) {
+      if (pages[0].p.includes('/')) return res.redirect(302, `/s/${encodeURIComponent(id)}/${href(pages[0].p)}`);
+      hit = pages[0];
+    } else if (pages.length > 1) {
+      res.set('Cache-Control', 'no-store');
+      return res.type('html').send(`<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escHtml(meta.name)}</title>
+<style>body{margin:0;min-height:100vh;display:grid;place-items:center;font-family:-apple-system,"Hiragino Sans","Noto Sans JP",system-ui,sans-serif;background:linear-gradient(135deg,#cfe0ff,#ffd9ec);color:#0c1226}
+main{width:min(520px,92vw);padding:28px;border-radius:28px;background:rgba(255,255,255,.55);-webkit-backdrop-filter:blur(24px);backdrop-filter:blur(24px);box-shadow:0 20px 60px rgba(30,60,120,.18)}
+h1{margin:0 0 4px;font-size:22px}p{margin:0 0 14px;color:#5b6378;font-size:14px}ul{list-style:none;margin:0;padding:0;display:grid;gap:8px}
+a{display:block;padding:12px 16px;border-radius:14px;background:rgba(255,255,255,.7);color:#0a84ff;text-decoration:none;font-weight:600;word-break:break-all}a:hover{background:#fff}</style></head>
+<body><main><h1>${escHtml(meta.name)}</h1><p>ページを選んでください</p><ul>${pages.map((f) => `<li><a href="${href(f.p)}">${escHtml(f.p)}</a></li>`).join('')}</ul></main></body></html>`);
+    }
+  }
 
   if (!hit) {
     const nf = idx.get('404.html');
