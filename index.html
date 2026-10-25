@@ -970,7 +970,7 @@ module.exports = async (req) => {
         <div class="row"><a class="btn sm primary" href="${esc(siteUrl(last.id))}" target="_blank" rel="noopener">${icon('open')}開く</a><button class="btn sm" data-act="copy-url">${icon('copy')}コピー</button></div></div></div>` : ''}
       <div class="glass panel">
         <h2>ファイル</h2>
-        <p class="sub">ファイルやフォルダをここにドロップ。<span class="mono">index.html</span> があるとトップページになります。</p>
+        <p class="sub">ファイルやフォルダをここにドロップ。ファイル名は自由です(<span class="mono">abc.html</span> でもOK)。<span class="mono">index.html</span> があればトップページに、なければ HTML が1つならそれが、複数なら一覧ページが開きます。</p>
         <div class="drop" id="dropzone">
           <div class="big">${icon('upload')}</div>
           <b>ここにドロップ</b>
@@ -983,7 +983,7 @@ module.exports = async (req) => {
           </div>
         </div>
         ${S.files.size ? `<div class="files">${rows}</div>
-        <div class="legend"><span>画像・動画は${fmtBytes(S.cfg.maxMediaBytes || 4194304)}まで</span><span>server.js と server/ は非公開(サーバー用)</span></div>` : ''}
+        <div class="legend"><span>画像・動画は${fmtBytes(S.cfg.maxMediaBytes || 4194304)}まで</span><span>server.js と server/ は非公開(サーバー用・サーバーを使わないなら不要)</span></div>` : ''}
       </div>
       <div class="dock glass"><div class="t">${dockText}</div>
         <button class="btn primary" data-act="deploy" ${(!n || S.busy) ? 'disabled' : ''}>${icon('rocket')}デプロイ</button></div>`;
@@ -1022,7 +1022,7 @@ module.exports = async (req) => {
   }
 
   async function newFile() {
-    const v = await promptDialog({ title: '新しいファイル', sub: 'フォルダは / で区切れます(例: css/style.css)', label: 'ファイル名', value: S.files.has('index.html') ? '' : 'index.html', placeholder: 'index.html', ok: '作成して編集', mono: true });
+    const v = await promptDialog({ title: '新しいファイル', sub: 'フォルダは / で区切れます(例: css/style.css)', label: 'ファイル名', value: S.files.size ? '' : 'index.html', placeholder: '例: abc.html', ok: '作成して編集', mono: true });
     if (v === null) return;
     const path = v.trim().replace(/^\/+/, '');
     const k = kindOf(path);
@@ -1034,7 +1034,7 @@ module.exports = async (req) => {
   async function deploy() {
     if (S.busy) return;
     const live = [...S.files.values()].filter((f) => f.status !== 'removed');
-    if (!live.some((f) => f.path === 'index.html') && !live.some((f) => f.path === 'server.js')) return toast('index.html(または server.js)が必要です', 'err');
+    if (!live.length) return toast('ファイルを追加してください', 'err');
     const id = S.proj.id;
     const entries = [];
     const media = live.filter((f) => f.status === 'new' && f.kind === 'm');
@@ -1122,7 +1122,7 @@ module.exports = async (req) => {
     return `
       <div class="glass panel">
         <div class="row" style="justify-content:space-between"><h2 style="margin:0">サーバー</h2>${stateBadge}</div>
-        <p class="sub" style="margin-top:6px">プロジェクトに <span class="mono">server.js</span> を入れてデプロイすると、<span class="mono">${esc(url)}api/…</span> へのアクセスがそのプログラムで処理されます(Vercel や Render のサーバーのように)。</p>
+        <p class="sub" style="margin-top:6px">プロジェクトに <span class="mono">server.js</span> を入れてデプロイすると、<span class="mono">${esc(url)}api/…</span> へのアクセスがそのプログラムで処理されます(Vercel や Render のサーバーのように)。サーバーを使わないサイトなら、<span class="mono">server.js</span> は要りません。</p>
         <div class="row" style="margin-bottom:6px">
           ${hasServerFile() ? '' : `<button class="btn primary" data-act="add-server">${icon('plus')}サンプルの server.js を追加</button>`}
           <button class="btn" data-act="tab" data-tab="env">${icon('key')}環境変数をひらく</button>
