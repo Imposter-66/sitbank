@@ -42,8 +42,16 @@ const MAX_ENV = 30;
 const META_TTL = 5000;
 
 const ID_RE = /^[a-z0-9][a-z0-9-]{2,29}$/;
-// ファイル名の1区切り: 日本語を含む文字・数字と . _ - ( ) （ ） ・
-const FILE_SEG_RE = /^[\p{L}\p{N}\p{M}._\-()（）・]{1,60}$/u;
+// ファイル名の1区切り(フォルダ名・ファイル名)。どの言語の文字も、スペースも、記号・絵文字もOK。
+// だめなもの: / \ 、制御文字、向きを入れ替える見えない文字(名前の偽装に使われる)、先頭・末尾のスペース
+function segOk(s) {
+  if (s.length < 1 || s.length > 60) return false;
+  if (/[\/\\]/.test(s)) return false;
+  if (/[\p{Cc}\p{Cs}\p{Co}\p{Cn}\p{Zl}\p{Zp}]/u.test(s)) return false;
+  if (/\p{Cf}/u.test(s.replace(/[\u200c\u200d]/g, ''))) return false; // \u200c\u200d は絵文字・ペルシア語・インド系の言語に必要
+  if (/^\s|\s$/u.test(s)) return false;
+  return true;
+}
 const ENV_KEY_RE = /^[A-Za-z_][A-Za-z0-9_]{0,49}$/;
 const ENV_RESERVED = /^(NODE_|LD_|DYLD_|UV_|OPENSSL_|SSL_CERT|SITBANK)/i;
 
@@ -293,7 +301,7 @@ function cleanPath(p) {
   if (segs.length > 6) throw fail(400, `${p}: フォルダが深すぎます(6階層まで)`);
   for (const s of segs) {
     if (s.startsWith('.')) throw fail(400, `${p}: ドットで始まるファイルは使えません(.env などは「環境変数」に入れてください)`);
-    if (!FILE_SEG_RE.test(s)) throw fail(400, `${p}: ファイル名には、日本語・英数字と . _ - ( ) だけが使えます(スペースや記号は使えません)`);
+    if (!segOk(s)) throw fail(400, `${p}: 使えない文字が入っています(/ や \ 、制御文字、名前の先頭・末尾のスペースは使えません)`);
   }
   if (!extOf(p)) throw fail(400, `${p}: 拡張子が必要です`);
   return p;
@@ -876,12 +884,13 @@ api.post('/projects/:id/server-test', authMw, wrap(async (req, res) => {
 app.use('/api', api);
 
 // ---------- 公開サイトの配信 ----------
+const SITE_SANDBOX = 'sandbox allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox allow-modals allow-downloads allow-pointer-lock allow-presentation';
 function siteHeaders(res) {
   res.set({
     'X-Content-Type-Options': 'nosniff',
     'Referrer-Policy': 'no-referrer',
     // 公開サイトが SiTBANK 本体(ログイン情報)に触れないよう、必ず隔離して配信する
-    'Content-Security-Policy': 'sandbox allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox allow-modals allow-downloads allow-pointer-lock',
+    'Content-Security-Policy': SITE_SANDBOX,
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Methods': 'GET,POST,PUT,PATCH,DELETE,OPTIONS',
     'Access-Control-Allow-Headers': 'Content-Type, Authorization, Accept, X-Requested-With',
@@ -891,15 +900,229 @@ const siteText = (res, status, msg) => res.status(status).type('text/plain; char
 
 const bodyParser = express.raw({ type: () => true, limit: '1mb' });
 
-app.get('/s/:id', (req, res, next) => {
-  if (req.path.endsWith('/')) return next(); // /s/<id>/ はそのまま下の配信へ
-  const q = req.originalUrl.includes('?') ? req.originalUrl.slice(req.originalUrl.indexOf('?')) : '';
-  res.redirect(302, `/s/${encodeURIComponent(req.params.id)}/${q}`);
-});
+// ---------- localStorage / sessionStorage への対応 ----------
+// 公開サイトは隔離(sandbox)されていて、そのままでは localStorage が使えない。
+// そこで /s/ では「親ページ(ホスト)」を返し、その中に隔離した本物のサイト(/f/)を iframe で表示する。
+// サイト側には小さなスクリプト(shim)を差し込み、localStorage / sessionStorage の代わりを用意する。
+// データはホスト側が(サイトごとに別の名前で)ブラウザへ保存するので、SiTBANK 本体のログイン情報には触れない。
+function shimMain() {
+  var PRE = '__sbstore:', MAX = 1000000;
+  var touched = { l: {}, s: {} }, ready = false, timer = 0;
+  function cl(o) {
+    var m = new Map();
+    if (o && typeof o === 'object') for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k) && typeof o[k] === 'string') m.set(k, o[k]);
+    return m;
+  }
+  function obj(m) { var o = {}; m.forEach(function (v, k) { Object.defineProperty(o, k, { value: v, enumerable: true, writable: true, configurable: true }); }); return o; }
+  var L = new Map(), S = new Map(), got = false;
+  try {
+    var n = window.name;
+    if (typeof n === 'string' && n.indexOf(PRE) === 0) { var o0 = JSON.parse(n.slice(PRE.length)); L = cl(o0.l); S = cl(o0.s); got = true; window.name = ''; }
+  } catch (e) { /* 読めなければ空から始める */ }
+  ready = got;
+  // 引き継ぎ用の名前(window.name)の中身は、サイト側には見せない
+  var nd = Object.getOwnPropertyDescriptor(window, 'name') || {};
+  var nameGet = nd.get ? function () { return nd.get.call(window); } : function () { return window.name; };
+  var nameSet = nd.set ? function (v) { nd.set.call(window, v); } : function (v) { window.name = v; };
+  if (nd.get && nd.set && nd.configurable) {
+    try { Object.defineProperty(window, 'name', { get: function () { var v = nameGet(); return typeof v === 'string' && v.indexOf(PRE) === 0 ? '' : v; }, set: function (v) { nameSet(v); }, configurable: true, enumerable: nd.enumerable }); } catch (e) { /* 無視 */ }
+  }
+  var inFrame = false; try { inFrame = window.parent !== window; } catch (e) { inFrame = false; }
+  function post(m) { if (!inFrame) return; m.sb = 1; try { window.parent.postMessage(m, '*'); } catch (e) { /* 親がいない */ } }
+  function stash() { try { if (ready) nameSet(PRE + JSON.stringify({ l: obj(L), s: obj(S) })); } catch (e) { /* 無視 */ } }
+  function flush() { timer = 0; if (ready) { post({ t: 'set', l: obj(L), s: obj(S) }); stash(); } }
+  function changed(kind, k) { touched[kind][k === null ? '\u0000all' : k] = 1; stash(); if (!timer) timer = setTimeout(flush, 30); }
+  function size(d) { var t = 0; d.forEach(function (v, k) { t += k.length + v.length; }); return t; }
 
-app.all('/s/:id/*', bodyParser, wrap(async (req, res) => {
+  function make(d, kind) {
+    var methods = {
+      getItem: function (k) { k = String(k); return d.has(k) ? d.get(k) : null; },
+      setItem: function (k, v) {
+        if (arguments.length < 2) throw new TypeError("Failed to execute 'setItem' on 'Storage': 2 arguments required, but only " + arguments.length + ' present.');
+        k = String(k); v = String(v);
+        var old = d.has(k) ? d.get(k) : null;
+        if (old === v) return;
+        if (size(d) - (old === null ? 0 : k.length + old.length) + k.length + v.length > MAX) throw new DOMException("Failed to execute 'setItem' on 'Storage': Setting the value of '" + k + "' exceeded the quota.", 'QuotaExceededError');
+        d.set(k, v); changed(kind, k);
+      },
+      removeItem: function (k) { k = String(k); if (!d.has(k)) return; d.delete(k); changed(kind, k); },
+      clear: function () { if (!d.size) return; d.clear(); changed(kind, null); },
+      key: function (i) { i = Number(i); var ks = Array.from(d.keys()); return i >= 0 && i < ks.length ? ks[i] : null; },
+    };
+    var t = {};
+    try { if (window.Storage && window.Storage.prototype) Object.setPrototypeOf(t, window.Storage.prototype); } catch (e) { /* そのまま */ }
+    Object.keys(methods).forEach(function (m) { Object.defineProperty(t, m, { value: methods[m], configurable: true, writable: true, enumerable: false }); });
+    Object.defineProperty(t, 'length', { get: function () { return d.size; }, configurable: true, enumerable: false });
+    try { Object.defineProperty(t, Symbol.toStringTag, { value: 'Storage', configurable: true }); } catch (e) { /* 無視 */ }
+    return new Proxy(t, {
+      get: function (tt, p, r) { if (typeof p !== 'string' || p in tt) return Reflect.get(tt, p, r); return d.has(p) ? d.get(p) : undefined; },
+      set: function (tt, p, v) { if (typeof p === 'symbol') { tt[p] = v; return true; } methods.setItem(p, v); return true; },
+      deleteProperty: function (tt, p) { if (typeof p === 'string') methods.removeItem(p); return true; },
+      has: function (tt, p) { return (typeof p === 'string' && d.has(p)) || p in tt; },
+      ownKeys: function () { return Array.from(d.keys()); },
+      getOwnPropertyDescriptor: function (tt, p) {
+        if (typeof p === 'string' && d.has(p)) return { value: d.get(p), writable: true, enumerable: true, configurable: true };
+        return undefined;
+      },
+      defineProperty: function (tt, p, desc) { if (typeof p === 'string' && 'value' in desc) methods.setItem(p, desc.value); return true; },
+    });
+  }
+  var LS = make(L, 'l'), SS = make(S, 's');
+  function def(name, val) {
+    try { Object.defineProperty(window, name, { get: function () { return val; }, configurable: true, enumerable: true }); } catch (e) { /* 失敗しても動作は続ける */ }
+  }
+  def('localStorage', LS); def('sessionStorage', SS);
+
+  // 親(ホスト)からの連絡
+  function apply(d, kind, snap, fire, area) {
+    var nm = cl(snap), ch = [];
+    if (fire) {
+      nm.forEach(function (v, k) { if (!d.has(k) || d.get(k) !== v) ch.push([k, d.has(k) ? d.get(k) : null, v]); });
+      d.forEach(function (v, k) { if (!nm.has(k)) ch.push([k, v, null]); });
+    }
+    d.clear(); nm.forEach(function (v, k) { d.set(k, v); });
+    ch.forEach(function (c) {
+      try {
+        var ev = new StorageEvent('storage', { key: c[0], oldValue: c[1], newValue: c[2], url: location.href });
+        try { Object.defineProperty(ev, 'storageArea', { value: area }); } catch (e) { /* 無視 */ }
+        window.dispatchEvent(ev);
+      } catch (e) { /* 無視 */ }
+    });
+  }
+  window.addEventListener('message', function (e) {
+    var m = e.data;
+    if (!inFrame || e.source !== window.parent || !m || m.sb !== 1) return;
+    if (m.t === 'init' && !ready) {
+      [['l', L], ['s', S]].forEach(function (a) {
+        var host = cl(m[a[0]]), cur = a[1];
+        host.forEach(function (v, k) { if (!touched[a[0]]['\u0000all'] && !touched[a[0]][k] && !cur.has(k)) cur.set(k, v); });
+      });
+      ready = true; flush();
+    } else if (m.t === 'ext' && ready) {
+      if (m.l) apply(L, 'l', m.l, true, LS);
+    }
+  });
+  if (!got) post({ t: 'hello' });
+
+  // ページを離れる前に保存し、次のページへ引き継ぐ
+  function leave() {
+    if (timer) { clearTimeout(timer); flush(); }
+    stash();
+  }
+  window.addEventListener('pagehide', leave);
+  document.addEventListener('visibilitychange', function () { if (document.visibilityState === 'hidden') leave(); });
+
+  // 今いるページ(アドレス・タイトル)を親へ知らせる
+  var nt = 0;
+  function nav() { if (nt) return; nt = setTimeout(function () { nt = 0; post({ t: 'nav', u: location.href }); }, 80); }
+  ['pushState', 'replaceState'].forEach(function (m) {
+    var orig = history[m];
+    history[m] = function () { var r = orig.apply(this, arguments); nav(); return r; };
+  });
+  window.addEventListener('hashchange', nav);
+  window.addEventListener('popstate', nav);
+  function title() { post({ t: 'title', v: document.title || '' }); }
+  document.addEventListener('DOMContentLoaded', function () {
+    nav(); title();
+    try { var te = document.querySelector('title'); if (te) new MutationObserver(title).observe(te, { childList: true, characterData: true, subtree: true }); } catch (e) { /* 無視 */ }
+  });
+}
+const SHIM_SRC = `(${shimMain.toString()})();`;
+
+function hostMain(C) {
+  var PRE = '__sbstore:', MAX = 1000000;
+  var KL = 'sbsite:' + C.id, KS = 'sbsess:' + C.id;
+  function rd(st, k) {
+    try {
+      var o = JSON.parse(st.getItem(k) || 'null'), r = {}, n = 0;
+      if (o && typeof o === 'object' && !Array.isArray(o)) for (var key in o) if (typeof o[key] === 'string') { n += key.length + o[key].length; if (n <= MAX) r[key] = o[key]; }
+      return r;
+    } catch (e) { return {}; }
+  }
+  function wr(st, k, o) { try { st.setItem(k, JSON.stringify(o)); return true; } catch (e) { return false; } }
+  function clean(o) {
+    if (!o || typeof o !== 'object' || Array.isArray(o)) return null;
+    var r = {}, n = 0;
+    for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) {
+      if (typeof o[k] !== 'string') return null;
+      n += k.length + o[k].length; if (n > MAX) return null;
+      Object.defineProperty(r, k, { value: o[k], enumerable: true, writable: true, configurable: true });
+    }
+    return r;
+  }
+  var L = rd(window.localStorage, KL), S = rd(window.sessionStorage, KS);
+  // 名前(=保存データ)と src は、ページに差し込む「前」に決めておく(後からだと引き継がれない)
+  var f = document.createElement('iframe');
+  f.id = 'f';
+  f.title = C.name;
+  f.name = PRE + JSON.stringify({ l: L, s: S });
+  f.setAttribute('sandbox', C.sandbox);
+  f.setAttribute('allow', 'fullscreen; autoplay; clipboard-write; camera; microphone; geolocation');
+  f.src = C.src + location.hash;
+  document.body.appendChild(f);
+  function post(m) { m.sb = 1; try { f.contentWindow.postMessage(m, '*'); } catch (e) { /* まだ無い */ } }
+  window.addEventListener('message', function (e) {
+    if (e.source !== f.contentWindow) return;
+    var d = e.data;
+    if (!d || d.sb !== 1) return;
+    if (d.t === 'set') {
+      var l = clean(d.l), s = clean(d.s);
+      if (l) { L = l; wr(window.localStorage, KL, L); }
+      if (s) { S = s; wr(window.sessionStorage, KS, S); }
+    } else if (d.t === 'hello') {
+      post({ t: 'init', l: L, s: S });
+    } else if (d.t === 'nav') {
+      try {
+        var u = new URL(String(d.u));
+        if (u.origin === location.origin && u.pathname.indexOf('/f/') === 0) history.replaceState(null, '', '/s/' + u.pathname.slice(3) + u.search + u.hash);
+      } catch (x) { /* 無視 */ }
+    } else if (d.t === 'title') {
+      document.title = String(d.v || '').slice(0, 200) || C.name;
+    }
+  });
+  window.addEventListener('storage', function (e) {
+    if (e.storageArea === window.localStorage && e.key === KL) { L = rd(window.localStorage, KL); post({ t: 'ext', l: L }); }
+  });
+}
+const jsonForScript = (v) => JSON.stringify(v).replace(/</g, '\\u003c').replace(/\u2028/g, '\\u2028').replace(/\u2029/g, '\\u2029');
+
+function hostPage(res, meta, id, src) {
+  res.set({
+    'Cache-Control': 'private, no-cache',
+    'Vary': 'Sec-Fetch-Dest',
+    'Content-Security-Policy': "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; frame-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'; object-src 'none'",
+  });
+  return res.type('html').send(`<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><title>${escHtml(meta.name)}</title>
+<style>html,body{margin:0;height:100%;background:#fff}iframe{position:fixed;inset:0;width:100%;height:100%;border:0;display:block}</style></head>
+<body>
+<noscript>このサイトの表示には JavaScript が必要です。</noscript>
+<script>(${hostMain.toString()})(${jsonForScript({ id, name: meta.name, src, sandbox: SITE_SANDBOX.replace('sandbox ', '') })});</script></body></html>`);
+}
+
+function injectShim(html) {
+  const tag = `<script>${SHIM_SRC}</script>`;
+  const m = /<head(?:\s[^>]*)?>/i.exec(html) || /<html(?:\s[^>]*)?>/i.exec(html);
+  if (m) return html.slice(0, m.index + m[0].length) + tag + html.slice(m.index + m[0].length);
+  const d = /^\s*<!doctype[^>]*>/i.exec(html);
+  if (d) return html.slice(0, d[0].length) + tag + html.slice(d[0].length);
+  return tag + html;
+}
+
+for (const P of ['s', 'f']) {
+  app.get(`/${P}/:id`, (req, res, next) => {
+    if (req.path.endsWith('/')) return next(); // /s/<id>/ はそのまま下の配信へ
+    const q = req.originalUrl.includes('?') ? req.originalUrl.slice(req.originalUrl.indexOf('?')) : '';
+    res.redirect(302, `/${P}/${encodeURIComponent(req.params.id)}/${q}`);
+  });
+  app.all(`/${P}/:id/*`, bodyParser, siteMain(P));
+}
+
+function siteMain(P) { return wrap(async (req, res) => {
   siteHeaders(res);
   if (req.method === 'OPTIONS') return res.status(204).end();
+  const dest = String(req.get('sec-fetch-dest') || '').toLowerCase();
+  // 隔離側(/f/)をアドレスバーで直接開いたら、親ページ側(/s/)へ移す
+  if (P === 'f' && dest === 'document' && (req.method === 'GET' || req.method === 'HEAD')) return res.redirect(302, req.originalUrl.replace(/^\/f\//, '/s/'));
 
   const id = req.params.id;
   const meta = await loadProject(id);
@@ -953,7 +1176,7 @@ app.all('/s/:id/*', bodyParser, wrap(async (req, res) => {
     const pages = [...idx.values()].filter((f) => f.k === 't' && /\.html?$/i.test(f.p) && f.p !== '404.html').sort((a, b) => a.p.localeCompare(b.p));
     const href = (p) => p.split('/').map(encodeURIComponent).join('/');
     if (pages.length === 1) {
-      if (pages[0].p.includes('/')) return res.redirect(302, `/s/${encodeURIComponent(id)}/${href(pages[0].p)}`);
+      if (pages[0].p.includes('/')) return res.redirect(302, `/${P}/${encodeURIComponent(id)}/${href(pages[0].p)}`);
       hit = pages[0];
     } else if (pages.length > 1) {
       res.set('Cache-Control', 'no-store');
@@ -975,15 +1198,23 @@ a{display:block;padding:12px 16px;border-radius:14px;background:rgba(255,255,255
     }
     return siteText(res, 404, '404 Not Found');
   }
-  if (hit.p === rel + '/index.html') return res.redirect(302, `/s/${encodeURIComponent(id)}/${rel.split('/').map(encodeURIComponent).join('/')}/`);
+  if (hit.p === rel + '/index.html') return res.redirect(302, `/${P}/${encodeURIComponent(id)}/${rel.split('/').map(encodeURIComponent).join('/')}/`);
 
   if (hit.k === 'm') {
     res.set('Cache-Control', 'public, max-age=60');
     return res.redirect(302, SB_ORIGIN + meta.media[hit.p].url);
   }
 
-  const etag = `W/"${meta.ver}-${sha1(hit.p).slice(0, 8)}"`;
-  res.set({ ETag: etag, 'Cache-Control': 'public, max-age=0, s-maxage=5, stale-while-revalidate=30' });
+  // HTML は「親ページ(host)」「shim入り(shim)」「そのまま(raw)」のどれかで返す
+  let mode = 'raw';
+  if (hit.k === 't' && /\.html?$/i.test(hit.p)) {
+    if (P === 's') mode = (dest === '' || dest === 'document') ? 'host' : (dest === 'iframe' || dest === 'frame') ? 'shim' : 'raw';
+    else mode = (dest === '' || dest === 'iframe' || dest === 'frame') ? 'shim' : 'raw';
+  }
+  if (mode === 'host') return hostPage(res, meta, id, req.originalUrl.replace(/^\/s\//, '/f/'));
+
+  const etag = `W/"${meta.ver}-${sha1(hit.p).slice(0, 8)}${mode === 'shim' ? 's' : ''}"`;
+  res.set({ ETag: etag, 'Cache-Control': mode === 'raw' && !/\.html?$/i.test(hit.p) ? 'public, max-age=0, s-maxage=5, stale-while-revalidate=30' : 'private, no-cache', Vary: 'Sec-Fetch-Dest' });
   if (req.get('if-none-match') === etag) return res.status(304).end();
 
   const pub = await loadBundle(meta, id, false);
@@ -992,8 +1223,9 @@ a{display:block;padding:12px 16px;border-radius:14px;background:rgba(255,255,255
   const ext = extOf(hit.p);
   const mime = MIME[ext] || 'application/octet-stream';
   res.type(e[0] === 't' ? `${mime}; charset=utf-8` : mime);
+  if (mode === 'shim') return res.send(injectShim(e[1]));
   return res.send(e[0] === 't' ? e[1] : Buffer.from(e[1], 'base64'));
-}));
+}); }
 
 app.use((req, res) => {
   if (req.path.startsWith('/api/')) return res.status(404).json({ error: '見つかりません' });
