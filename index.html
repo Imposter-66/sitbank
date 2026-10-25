@@ -733,7 +733,7 @@ var GakuAcct = (function () {
     if (segs.length > 6) return 'フォルダが深すぎます(6階層まで)';
     for (const s of segs) {
       if (s.startsWith('.')) return 'ドットで始まるファイルは使えません';
-      if (!/^[A-Za-z0-9._-]{1,60}$/.test(s)) return '英数字と . _ - だけにしてください';
+      if (!/^[\p{L}\p{N}\p{M}._\-()（）・]{1,60}$/u.test(s)) return '日本語・英数字と . _ - ( ) だけが使えます(スペースや記号は不可)';
     }
     if (!extOf(p)) return '拡張子が必要です(例: index.html)';
     return null;
@@ -755,7 +755,7 @@ var GakuAcct = (function () {
   async function addFiles(items) {
     let added = 0; const notes = [];
     for (const it of items) {
-      const path = it.path.replace(/^\/+/, '');
+      const path = it.path.normalize('NFC').replace(/^\/+/, '');
       if (SKIP.test(path)) continue;
       const bad = checkPath(path);
       if (bad) { notes.push(`${path}: ${bad}`); continue; }
@@ -970,7 +970,7 @@ module.exports = async (req) => {
         <div class="row"><a class="btn sm primary" href="${esc(siteUrl(last.id))}" target="_blank" rel="noopener">${icon('open')}開く</a><button class="btn sm" data-act="copy-url">${icon('copy')}コピー</button></div></div></div>` : ''}
       <div class="glass panel">
         <h2>ファイル</h2>
-        <p class="sub">ファイルやフォルダをここにドロップ。ファイル名は自由です(<span class="mono">abc.html</span> でもOK)。<span class="mono">index.html</span> があればトップページに、なければ HTML が1つならそれが、複数なら一覧ページが開きます。</p>
+        <p class="sub">ファイルやフォルダをここにドロップ。ファイル名は自由です(<span class="mono">abc.html</span> でも <span class="mono">ホーム.html</span> でもOK)。<span class="mono">index.html</span> があればトップページに、なければ HTML が1つならそれが、複数なら一覧ページが開きます。</p>
         <div class="drop" id="dropzone">
           <div class="big">${icon('upload')}</div>
           <b>ここにドロップ</b>
@@ -1022,9 +1022,9 @@ module.exports = async (req) => {
   }
 
   async function newFile() {
-    const v = await promptDialog({ title: '新しいファイル', sub: 'フォルダは / で区切れます(例: css/style.css)', label: 'ファイル名', value: S.files.size ? '' : 'index.html', placeholder: '例: abc.html', ok: '作成して編集', mono: true });
+    const v = await promptDialog({ title: '新しいファイル', sub: 'フォルダは / で区切れます(例: css/style.css)', label: 'ファイル名', value: S.files.size ? '' : 'index.html', placeholder: '例: abc.html / ホーム.html', ok: '作成して編集', mono: true });
     if (v === null) return;
-    const path = v.trim().replace(/^\/+/, '');
+    const path = v.trim().normalize('NFC').replace(/^\/+/, '');
     const k = kindOf(path);
     const bad = checkPath(path) || (k === null ? 'この種類は作れません' : (k === 'm' || k === 'b') ? '画像などはドロップで追加してください' : null);
     if (bad) return toast(bad, 'err');
