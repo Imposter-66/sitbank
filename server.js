@@ -27,6 +27,14 @@ const SECRET_KEY = process.env.SERBANK_SECRET_KEY || '';   // 書き込み用(�
 const MASTER = process.env.SITBANK_SECRET || SECRET_KEY;   // 暗号化・ログイン署名の元になる秘密
 const GAKU_URL = process.env.GAKU_ACCT_URL ||
   'https://script.google.com/a/macros/school.kasugai.ed.jp/s/AKfycbyDnabgy3qc0L6Y4cfwW53tyzPMPS2thg1nd6mAvtIHa5YURK3Tui4c7vCUWt47sCow/exec';
+// 公開サイトを「別のドメイン」で配信する設定(どちらも省略可)。
+//   SITE_HOST   … 公開サイト専用のドメイン1つ(例: sitbank-sites.vercel.app)。サイトのURLは https://<SITE_HOST>/s/<ID>/
+//   SITE_DOMAIN … ワイルドカードのドメイン(例: example.com)。サイトのURLは https://<ID>.example.com/ (サイトごとに別オリジン)
+// 別ドメインで配信すると、サイトは sandbox なしの「ふつうのサイト」として動く(GAKU acct などの埋め込み・Cookie・IndexedDB も使える)。
+const hostEnv = (v) => String(v || '').trim().toLowerCase().replace(/^https?:\/\//, '').replace(/[\/:].*$/, '');
+const SITE_HOST = hostEnv(process.env.SITE_HOST);
+const SITE_DOMAIN = hostEnv(process.env.SITE_DOMAIN);
+const siteBase = (id) => SITE_DOMAIN ? `https://${id}.${SITE_DOMAIN}/` : SITE_HOST ? `https://${SITE_HOST}/s/${id}/` : `/s/${id}/`;
 const SERVER_CODE_ENABLED = process.env.ENABLE_SERVER_CODE !== '0';
 const SERVER_TIMEOUT_MS = Math.min(Math.max(Number(process.env.SERVER_TIMEOUT_MS) || 8000, 1000), 55000);
 const MAX_MEDIA_BYTES = Number(process.env.MAX_MEDIA_BYTES) || 4 * 1024 * 1024; // Vercel の本文上限(4.5MB)に合わせる
@@ -733,7 +741,7 @@ async function deleteProject(id, aid) {
 }
 
 const summarize = (id, m) => ({
-  id, name: m.name, url: `/s/${id}/`, createdAt: m.createdAt, updatedAt: m.updatedAt,
+  id, name: m.name, url: siteBase(id), createdAt: m.createdAt, updatedAt: m.updatedAt,
   deployed: !!m.ver, hasServer: !!m.hasServer, fileCount: (m.files || []).length,
 });
 
@@ -743,6 +751,32 @@ const summarize = (id, m) => ({
 const app = express();
 app.disable('x-powered-by');
 app.set('trust proxy', true);
+
+// 公開サイト専用ドメインへのアクセスは、ここで振り分ける(本体の画面・API には触れさせない)
+app.use((req, res, next) => {
+  const host = String(req.headers.host || '').toLowerCase().replace(/:\d+$/, '');
+  if (SITE_DOMAIN && host.endsWith('.' + SITE_DOMAIN)) {
+    const id = host.slice(0, -SITE_DOMAIN.length - 1);
+    if (!ID_RE.test(id)) return res.status(404).type('text/plain; charset=utf-8').send('このサイトは見つかりません');
+    req.siteOwn = 'sub';
+    req.url = `/s/${id}` + (req.url.startsWith('/') ? req.url : '/' + req.url);
+    return next();
+  }
+  if (SITE_HOST && host === SITE_HOST) {
+    if (!/^\/s\/[^/?]+/.test(req.url)) return res.status(404).type('text/plain; charset=utf-8').send('404 Not Found');
+    req.siteOwn = 'host';
+    return next();
+  }
+  if ((SITE_HOST || SITE_DOMAIN) && /^\/[sf]\/[^/?]+/.test(req.url)) {
+    const m = /^\/[sf]\/([^/?]+)(\/[^?]*)?(\?.*)?$/.exec(req.url);
+    let id; try { id = decodeURIComponent(m[1]); } catch { id = ''; }
+    if (m && ID_RE.test(id)) {
+      const base = siteBase(id).replace(/\/$/, '');
+      return res.redirect(req.method === 'GET' || req.method === 'HEAD' ? 302 : 307, base + (m[2] || '/') + (m[3] || ''));
+    }
+  }
+  next();
+});
 
 const indexHtml = fs.readFileSync(path.join(__dirname, 'index.html'), 'utf8');
 
@@ -760,6 +794,7 @@ api.use(express.json({ limit: '4mb' }));
 api.get('/config', (req, res) => {
   res.json({
     configured: !!SECRET_KEY,
+    siteHost: SITE_HOST, siteDomain: SITE_DOMAIN,
     secureSecret: !!process.env.SITBANK_SECRET,
     serverCode: SERVER_CODE_ENABLED && !!PERM_FLAG,
     serverTimeoutSec: Math.round(SERVER_TIMEOUT_MS / 1000),
@@ -967,12 +1002,12 @@ app.use('/api', api);
 
 // ---------- 公開サイトの配信 ----------
 const SITE_SANDBOX = 'sandbox allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox allow-modals allow-downloads allow-pointer-lock allow-presentation';
-function siteHeaders(res) {
+function siteHeaders(res, own) {
   res.set({
     'X-Content-Type-Options': 'nosniff',
     'Referrer-Policy': 'no-referrer',
     // 公開サイトが SiTBANK 本体(ログイン情報)に触れないよう、必ず隔離して配信する
-    'Content-Security-Policy': SITE_SANDBOX,
+    ...(own ? {} : { 'Content-Security-Policy': SITE_SANDBOX }),
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Methods': 'GET,POST,PUT,PATCH,DELETE,OPTIONS',
     'Access-Control-Allow-Headers': 'Content-Type, Authorization, Accept, X-Requested-With',
@@ -1200,13 +1235,14 @@ for (const P of ['s', 'f']) {
 }
 
 function siteMain(P) { return wrap(async (req, res) => {
-  siteHeaders(res);
+  siteHeaders(res, !!req.siteOwn);
   if (req.method === 'OPTIONS') return res.status(204).end();
   const dest = String(req.get('sec-fetch-dest') || '').toLowerCase();
   // 隔離側(/f/)をアドレスバーで直接開いたら、親ページ側(/s/)へ移す
   if (P === 'f' && dest === 'document' && (req.method === 'GET' || req.method === 'HEAD')) return res.redirect(302, req.originalUrl.replace(/^\/f\//, '/s/'));
 
   const id = req.params.id;
+  const sbase = req.siteOwn === 'sub' ? '' : `/${P}/${encodeURIComponent(id)}`;
   const meta = await loadProject(id);
   if (!meta) return siteText(res, 404, 'このサイトは見つかりません');
 
@@ -1258,7 +1294,7 @@ function siteMain(P) { return wrap(async (req, res) => {
     const pages = [...idx.values()].filter((f) => f.k === 't' && /\.html?$/i.test(f.p) && f.p !== '404.html').sort((a, b) => a.p.localeCompare(b.p));
     const href = (p) => p.split('/').map(encodeURIComponent).join('/');
     if (pages.length === 1) {
-      if (pages[0].p.includes('/')) return res.redirect(302, `/${P}/${encodeURIComponent(id)}/${href(pages[0].p)}`);
+      if (pages[0].p.includes('/')) return res.redirect(302, `${sbase}/${href(pages[0].p)}`);
       hit = pages[0];
     } else if (pages.length > 1) {
       res.set('Cache-Control', 'no-store');
@@ -1280,7 +1316,7 @@ a{display:block;padding:12px 16px;border-radius:14px;background:rgba(255,255,255
     }
     return siteText(res, 404, '404 Not Found');
   }
-  if (hit.p === rel + '/index.html') return res.redirect(302, `/${P}/${encodeURIComponent(id)}/${rel.split('/').map(encodeURIComponent).join('/')}/`);
+  if (hit.p === rel + '/index.html') return res.redirect(302, `${sbase}/${rel.split('/').map(encodeURIComponent).join('/')}/`);
 
   if (hit.k === 'm') {
     res.set('Cache-Control', 'public, max-age=60');
@@ -1289,7 +1325,7 @@ a{display:block;padding:12px 16px;border-radius:14px;background:rgba(255,255,255
 
   // HTML は「親ページ(host)」「shim入り(shim)」「そのまま(raw)」のどれかで返す
   let mode = 'raw';
-  if (hit.k === 't' && /\.html?$/i.test(hit.p)) {
+  if (!req.siteOwn && hit.k === 't' && /\.html?$/i.test(hit.p)) {
     if (P === 's') mode = (dest === '' || dest === 'document') ? 'host' : (dest === 'iframe' || dest === 'frame') ? 'shim' : 'raw';
     else mode = (dest === '' || dest === 'iframe' || dest === 'frame') ? 'shim' : 'raw';
   }
