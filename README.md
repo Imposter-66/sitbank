@@ -111,7 +111,7 @@ npm start      # → http://localhost:3000
 | 画像・動画(png jpg gif webp avif mp4 mov webm) | SerBANK に保存され、`/s/<ID>/画像のパス` から表示 |
 | `server.js` と `server/` の中 | **公開されません**(サーバー用) |
 
-ファイル名・フォルダ名は **自由** です。世界中の言語の文字(日本語の漢字・ひらがな・カタカナ、中国語、韓国語、アラビア語、キリル文字、タイ語など)、数字、**スペース、記号、絵文字**が使えます(例: `私の 写真 (1).html`、`🎉パーティー.html`)。使えないのは `/` と `\`、制御文字、向きを入れ替える見えない文字、名前の先頭・末尾のスペース、先頭のドット(`.env` など)だけです。フォルダは6階層まで、名前は1つ60文字までです。公開URLでは、スペースや記号は自動で変換されて開けます(例: `私の 写真.html` → `/s/ID/私の%20写真`)。
+ファイル名・フォルダ名は **自由** です。世界中の言語の文字(日本語の漢字・ひらがな・カタカナ、中国語、韓国語、アラビア語、キリル文字、タイ語など)、数字、**スペース(先頭・末尾も)、あらゆる記号、絵文字**が使えます(例: `私の 写真 (1).html`、`🎉パーティー.html`、` スペースから始まる.html`、`a\b#c%d.html`、`.hidden.html`)。使えないのは、`/`(フォルダの区切りになるため)、制御文字(改行など)、「`.`」「`..`」だけの名前です。フォルダは6階層まで、名前は1つ60文字まで、拡張子は必要です。公開URLでは、スペースや記号は自動で変換されて開けます(例: `私の 写真.html` → `/s/ID/私の%20写真`)。
 
 ### サーバー(`server.js`)
 
@@ -142,8 +142,10 @@ module.exports = async (req) => {
 - 返し方: オブジェクト → JSON / 文字列 → テキスト / `{ status, headers, json | html | text | body }` / Express 風の `(req, res) => res.json(...)` も使えます。
 - ブラウザ側からは `fetch('api/hello')` のように、**相対パス**で呼べます(CORS は許可済み)。
 - `server/` フォルダの中のファイルは `require('./server/lib.js')` で読み込めます。
-- 使える標準モジュール: `crypto url querystring util buffer path zlib events string_decoder assert stream timers`。通信は `fetch` が使えます。
-- ファイルの読み書き・他のプログラムの起動・`npm` のパッケージはできません。
+- **`require` でも `import` でも書けます**(`export default async (req) => …` / `export const GET = …` も可)。`server/` の中は `.js` `.mjs` `.cjs` `.json` を置けて、`import { x } from './server/lib.mjs'` のように読み込めます。
+- 使える Node.js 標準モジュール: `crypto url querystring util buffer path zlib events string_decoder assert stream timers http https http2 net tls dns os async_hooks perf_hooks fs` など(`node:` を付けてもOK)。通信は `fetch` や `https` が使えます。
+- `fs` は「プロジェクトの `server.js` と `server/` の中身」を読める仮のファイル置き場です(`fs.readFileSync('server/data.json')`、`readdirSync`、`existsSync` など)。書き込みもできますが、**その1回のリクエストの間だけ**有効で、終わると消えます。残したいデータは SerBANK へ。
+- `npm` のパッケージ(`node_modules`)、他のプログラムの起動(`child_process`)、Worker、`vm` はできません。**サーバーは、リクエストのたびに起動して終わる方式**なので、`app.listen()` で待ち受け続ける Express のようなプログラムは動きません(`(req) => …` の関数の形で書いてください)。
 - `console.log` は、画面の「サーバー → 試してみる」で持ち主にだけ見えます。
 
 ### 環境変数と SerBANK
@@ -262,7 +264,8 @@ index.html からは fetch('api/xxx') のように、相対パスで呼んでく
 - **公開サイトは隔離して配信**します(`Content-Security-Policy: sandbox`)。そのため、公開サイトの JS から SiTBANK 本体のログイン情報には触れません。公開サイト自身の `localStorage` / `sessionStorage` は、下の「localStorage について」のしくみで使えます(Cookie と IndexedDB は使えません)。
 - **環境変数・アカウント情報・server.js は暗号化**(AES-256-GCM)して SerBANK に保存します。SerBANK の Public キーは誰でも読めるため、平文では置きません。
 - **ログインできるのは GAKU acct のアカウントだけ**です。確認コードは1回限りで、ログインの記録は署名つきトークン(14日)です。
-- **`server.js` は別プロセスで実行**し、Node の permission model で「ファイル読み取り・子プロセス・Worker・バインディング」を禁止、環境変数はそのプロジェクトのものだけ、メモリ128MB、制限時間つきです。手元の試験では、`fs` / `child_process` / `process.binding` / `/proc/<親>/environ` はすべて拒否され、親の Secret キーも見えませんでした。
+- **`server.js` は別プロセスで実行**し、Node の permission model で「ファイル読み取り・子プロセス・Worker・バインディング」を禁止、環境変数はそのプロジェクトのものだけ、メモリ128MB、制限時間つきです。手元の試験では、`fs` / `child_process` / `process.binding` / `/proc/<親>/environ` はすべて拒否され、親の Secret キーも見えませんでした(サイト側の `fs` は、本物のファイルではなく、プロジェクトの中身だけを返す仮のものです)。
+  ただし通信(`fetch` / `http` / `https` / `net`)は制限していないので、サーバーコードから、SiTBANK を動かしているサーバーと同じネットワークの中のものへアクセスできてしまいます。
   ただし Node の permission model は「完全な防御」とは公式にも言っていません。**学校の外の不特定多数に開放する場合は、`ENABLE_SERVER_CODE=0` でサーバー機能を止める**ことをおすすめします。
 - 使いすぎ防止として、ログイン・デプロイ・サーバー実行には回数制限があります。
 
