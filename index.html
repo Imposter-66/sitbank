@@ -449,7 +449,13 @@ var GakuAcct = (function () {
     if (s < 86400 * 7) return Math.floor(s / 86400) + '日前';
     return new Date(ms).toLocaleDateString('ja-JP');
   }
-  const siteUrl = (id) => `${location.origin}/s/${id}/`;
+  // 公開サイトのURL。専用ドメイン(SITE_HOST / SITE_DOMAIN)が設定されていればそちらを使う
+  const siteUrl = (id) => {
+    const c = S.cfg || {};
+    if (c.siteDomain) return `https://${id}.${c.siteDomain}/`;
+    if (c.siteHost) return `https://${c.siteHost}/s/${id}/`;
+    return `${location.origin}/s/${id}/`;
+  };
 
   let toastTimer;
   function toast(msg, kind = '') {
@@ -632,7 +638,7 @@ var GakuAcct = (function () {
     }
     const cards = S.projects.slice().sort((a, b) => b.updatedAt - a.updatedAt).map((p) => `
       <div class="glass proj" data-act="open-project" data-id="${esc(p.id)}" tabindex="0">
-        <div><h3>${esc(p.name)}</h3><div class="url mono">/s/${esc(p.id)}/</div></div>
+        <div><h3>${esc(p.name)}</h3><div class="url mono">${esc(siteUrl(p.id).replace(/^https?:\/\//, ''))}</div></div>
         <div class="row">
           ${p.deployed ? '<span class="badge ok">公開中</span>' : '<span class="badge warn">未デプロイ</span>'}
           ${p.hasServer ? '<span class="badge info">サーバーあり</span>' : ''}
@@ -659,7 +665,7 @@ var GakuAcct = (function () {
       <div class="btns"><button class="btn" data-r="cancel">キャンセル</button><button class="btn primary" data-r="ok">${icon('plus')}作成</button></div>`,
     { onOpen(el, done) {
       const name = $('#np-name', el), slug = $('#np-slug', el), prev = $('#np-prev', el);
-      const upd = () => { prev.textContent = `${location.origin}/s/${slug.value.trim().toLowerCase() || '(自動で決まります)'}/`; };
+      const upd = () => { prev.textContent = siteUrl(slug.value.trim().toLowerCase() || '(自動で決まります)'); };
       slug.addEventListener('input', upd); upd(); name.focus();
       el.addEventListener('keydown', (e) => { if (e.key === 'Enter') done({ name: name.value, slug: slug.value }); });
       el.querySelector('[data-r=ok]').addEventListener('click', () => done({ name: name.value, slug: slug.value }));
