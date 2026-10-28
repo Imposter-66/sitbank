@@ -46,6 +46,8 @@ HTML・JS・画像・動画はもちろん、`server.js`(サーバー)と環境�
 | `SERBANK_SECRET_KEY` | ✅ | SerBANK の **Secret キー**(`sk_...`)。絶対に公開しないでください |
 | `SITBANK_SECRET` | 推奨 | ログインの署名と、環境変数・アカウントの暗号化に使う長い合言葉(32文字以上のランダムな文字列)。未設定だと `SERBANK_SECRET_KEY` で代用しますが、キーを変えると全員ログインし直し・保存済みの環境変数が読めなくなります |
 | `GAKU_ACCT_URL` | 任意 | GAKU acct のウェブアプリ URL(`.../exec`)。未設定ならコードに入っている学校のURL |
+| `SITE_HOST` | 任意(おすすめ) | 公開サイト専用のドメイン(例: `sitbank-sites.vercel.app`)。設定すると、サイトが別ドメインの「ふつうのサイト」として動きます。詳しくは「3.5 公開サイト専用ドメイン」 |
+| `SITE_DOMAIN` | 任意 | ワイルドカードのドメイン(例: `example.com`)。サイトごとに `https://<ID>.example.com/` で公開されます |
 | `ENABLE_SERVER_CODE` | 任意 | `0` にすると、サーバー機能(`server.js` の実行)を止めます |
 | `SERVER_TIMEOUT_MS` | 任意 | `server.js` の制限時間(初期値 8000 = 8秒) |
 | `MAX_MEDIA_BYTES` | 任意 | 画像・動画1つの上限(初期値 4MB。Vercel の本文上限に合わせています) |
@@ -93,6 +95,28 @@ export SERBANK_SECRET_KEY="sk_ここにSecretキー"
 export SITBANK_SECRET="長いランダムな文字列"
 npm start      # → http://localhost:3000
 ```
+
+---
+
+### 3.5 公開サイト専用ドメイン(GAKU acct の枠など、埋め込みを使うサイトに必要)
+
+**何が違うのか:** 本家の Vercel では、あなたのサイトは「自分専用のドメイン」で動きます。一方 SiTBANK は、初期設定だと SiTBANK 本体と同じドメインの中(`/s/<ID>/`)で公開します。すると、サイトの JavaScript が **SiTBANK 本体のログイン情報を盗める**ため、安全のために公開サイトを「隔離(sandbox)」して表示しています。
+この隔離は、サイトの中に埋め込んだ別のページ(**GAKU acct の `<iframe>` など**)にも同じ制限をかけてしまい、Google の画面(Cookie・ログインが必要)が表示されなくなります。`localStorage` は代用品でなんとか動かしていますが、Cookie や IndexedDB は動きません。
+
+**直し方:** 公開サイトを、SiTBANK 本体とは **別のドメイン**で配信します。別ドメインなら、本体のログイン情報には触れないので、隔離なしの「ふつうのサイト」として動かせます(本家 Vercel と同じ動きです)。iframe・Cookie・`localStorage`・IndexedDB がすべてそのまま使えます。
+
+**やり方(かんたん・無料): `SITE_HOST`**
+1. Vercel のプロジェクト → **Settings → Domains** → **Add** で、もう1つドメインを追加します(例: `sitbank-sites.vercel.app`。空いていれば好きな名前でOK)。
+2. **Settings → Environment Variables** に `SITE_HOST` = `sitbank-sites.vercel.app` を追加します(`https://` は付けない)。
+3. **Redeploy**(再デプロイ)します。
+
+これで、サイトのURLが `https://sitbank-sites.vercel.app/s/<ID>/` になります。本体のドメインに `/s/<ID>/` でアクセスしても、自動で転送されます(昔のURLもそのまま使えます)。専用ドメインでは、SiTBANK の画面と API は開けません。
+注意: この方法では、**公開サイトどうしは同じドメインを共有**します(サイトAの `localStorage` を、サイトBも読めます)。信頼できる人だけで使うなら問題ありません。
+
+**もっと安全に: `SITE_DOMAIN`(自分のドメインが必要)**
+自分のドメイン(例: `example.com`)を持っていて、Vercel にワイルドカード(`*.example.com`)を追加できるなら、`SITE_DOMAIN` = `example.com` を設定します。サイトのURLは `https://<ID>.example.com/` になり、**サイトごとに別ドメイン**なので、サイトどうしも隔離されます。
+
+**どちらも設定しない場合:** 従来どおり(隔離して配信)です。GAKU acct の枠のような埋め込みは表示されない場合があります。
 
 ---
 
@@ -261,7 +285,7 @@ index.html からは fetch('api/xxx') のように、相対パスで呼んでく
 
 ## 安全のしくみと、知っておいてほしい限界
 
-- **公開サイトは隔離して配信**します(`Content-Security-Policy: sandbox`)。そのため、公開サイトの JS から SiTBANK 本体のログイン情報には触れません。公開サイト自身の `localStorage` / `sessionStorage` は、下の「localStorage について」のしくみで使えます(Cookie と IndexedDB は使えません)。
+- **公開サイトは隔離して配信**します(`SITE_HOST` / `SITE_DOMAIN` が未設定のとき: `Content-Security-Policy: sandbox`。設定すると、別ドメインで配信するので sandbox なしでも本体と分離されます)。そのため、公開サイトの JS から SiTBANK 本体のログイン情報には触れません。公開サイト自身の `localStorage` / `sessionStorage` は、下の「localStorage について」のしくみで使えます(Cookie と IndexedDB は使えません)。
 - **環境変数・アカウント情報・server.js は暗号化**(AES-256-GCM)して SerBANK に保存します。SerBANK の Public キーは誰でも読めるため、平文では置きません。
 - **ログインできるのは GAKU acct のアカウントだけ**です。確認コードは1回限りで、ログインの記録は署名つきトークン(14日)です。
 - **`server.js` は別プロセスで実行**し、Node の permission model で「ファイル読み取り・子プロセス・Worker・バインディング」を禁止、環境変数はそのプロジェクトのものだけ、メモリ128MB、制限時間つきです。手元の試験では、`fs` / `child_process` / `process.binding` / `/proc/<親>/environ` はすべて拒否され、親の Secret キーも見えませんでした(サイト側の `fs` は、本物のファイルではなく、プロジェクトの中身だけを返す仮のものです)。
@@ -314,4 +338,5 @@ index.html からは fetch('api/xxx') のように、相対パスで呼んでく
 - **ログインで止まる / 「確認サーバーに接続できません」** … GAKU acct のウェブアプリのアクセス権が「全員」か確認。コードを変更したら、新しいバージョンとして再デプロイが必要です。
 - **「SERBANK_SECRET_KEY が設定されていません」** … Vercel の Environment Variables を入れたあと、**再デプロイ**が必要です。
 - **最初の1回だけ遅い** … SerBANK は Render 上にあり、しばらく使わないと眠ります。少し待つと復活します(SiTBANK は自動で数回やり直します)。
+- **サイトの中の GAKU acct の枠(iframe)が表示されない** … 公開サイトを本体と同じドメインで隔離して配信しているためです。「3.5 公開サイト専用ドメイン」の `SITE_HOST` を設定してください。
 - **「サーバー機能は使えません」と出る** … このサーバーの Node.js が permission model に未対応(Node 22.13 以上が必要)か、`ENABLE_SERVER_CODE=0` になっています。
