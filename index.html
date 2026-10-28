@@ -718,10 +718,19 @@ var GakuAcct = (function () {
   const MEDIA_EXT = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'avif', 'mp4', 'mov', 'webm']);
   const VIDEO_EXT = new Set(['mp4', 'mov', 'webm']);
   const extOf = (p) => { const n = p.split('/').pop(); const i = n.lastIndexOf('.'); return i < 0 ? '' : n.slice(i + 1).toLowerCase(); };
+  // サーバーと同じルール: どの言語の文字も、スペース(先頭・末尾も)、あらゆる記号・絵文字もOK
+  // だめなもの: / (フォルダの区切り)、制御文字、「.」「..」だけの名前
+  function segOk(s) {
+    if (s.length < 1 || s.length > 60) return false;
+    if (s === '.' || s === '..') return false;
+    if (s.includes('/')) return false;
+    if (/[\p{Cc}\p{Cs}]/u.test(s)) return false;
+    return true;
+  }
   const isPrivate = (p) => p === 'server.js' || p.startsWith('server/');
   function kindOf(p) {
     const e = extOf(p);
-    if (isPrivate(p)) return ['js', 'cjs', 'json'].includes(e) ? 'x' : null;
+    if (isPrivate(p)) return ['js', 'mjs', 'cjs', 'json'].includes(e) ? 'x' : null;
     if (MEDIA_EXT.has(e)) return 'm';
     if (TEXT_EXT.has(e)) return 't';
     if (BIN_EXT.has(e)) return 'b';
@@ -732,8 +741,7 @@ var GakuAcct = (function () {
     const segs = p.split('/');
     if (segs.length > 6) return 'フォルダが深すぎます(6階層まで)';
     for (const s of segs) {
-      if (s.startsWith('.')) return 'ドットで始まるファイルは使えません';
-      if (!/^[\p{L}\p{N}\p{M}._\-()（）・]{1,60}$/u.test(s)) return '日本語・英数字と . _ - ( ) だけが使えます(スペースや記号は不可)';
+      if (!segOk(s)) return '使えない名前です(制御文字や、「.」「..」だけの名前は使えません)';
     }
     if (!extOf(p)) return '拡張子が必要です(例: index.html)';
     return null;
@@ -843,7 +851,7 @@ var GakuAcct = (function () {
 `;
   const STARTER_SERVER = `// SiTBANK サーバー: /s/<ID>/api/... へのアクセスを、ここで受け取ります。
 // ・環境変数は process.env.名前 で読めます(「環境変数」タブで設定)
-// ・通信は fetch が使えます / ファイルの読み書きはできません
+// ・通信は fetch、標準モジュール(crypto・https・fs など)が使えます。import / require どちらでもOK
 // ・req には method, path, query, headers, body が入っています
 
 module.exports = async (req) => {
@@ -1134,7 +1142,7 @@ module.exports = async (req) =&gt; {
   return { message: 'hello' };            // そのまま JSON で返ります
   // return { status: 404, json: {...} }; // ステータスを指定するとき
 };</pre>
-        <p class="hint">${S.cfg.serverTimeoutSec || 8}秒以内に返事をしてください。使える標準モジュール: crypto, url, util, buffer, path, zlib ほか / 通信は fetch。ファイルの読み書き・他プロセスの起動はできません。</p>
+        <p class="hint">${S.cfg.serverTimeoutSec || 8}秒以内に返事をしてください。Node.js の標準モジュール(crypto, http, https, fs, os, zlib など)と fetch が使えます。require でも import でも書けます。fs は server/ の中のファイルを読めます(書き込みはその場だけ)。npm のパッケージや他プロセスの起動はできません。</p>
       </div>
       <div class="glass panel" style="margin-top:16px">
         <h2>試してみる</h2>
