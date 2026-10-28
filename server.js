@@ -42,14 +42,13 @@ const MAX_ENV = 30;
 const META_TTL = 5000;
 
 const ID_RE = /^[a-z0-9][a-z0-9-]{2,29}$/;
-// ファイル名の1区切り(フォルダ名・ファイル名)。どの言語の文字も、スペースも、記号・絵文字もOK。
-// だめなもの: / \ 、制御文字、向きを入れ替える見えない文字(名前の偽装に使われる)、先頭・末尾のスペース
+// ファイル名の1区切り(フォルダ名・ファイル名)。どの言語の文字も、スペース(先頭・末尾も)、あらゆる記号・絵文字もOK。
+// だめなもの: / (フォルダの区切り)、制御文字(改行など)、壊れた文字、「.」「..」だけの名前
 function segOk(s) {
   if (s.length < 1 || s.length > 60) return false;
-  if (/[\/\\]/.test(s)) return false;
-  if (/[\p{Cc}\p{Cs}\p{Co}\p{Cn}\p{Zl}\p{Zp}]/u.test(s)) return false;
-  if (/\p{Cf}/u.test(s.replace(/[\u200c\u200d]/g, ''))) return false; // \u200c\u200d は絵文字・ペルシア語・インド系の言語に必要
-  if (/^\s|\s$/u.test(s)) return false;
+  if (s === '.' || s === '..') return false;
+  if (s.includes('/')) return false;
+  if (/[\p{Cc}\p{Cs}]/u.test(s)) return false;
   return true;
 }
 const ENV_KEY_RE = /^[A-Za-z_][A-Za-z0-9_]{0,49}$/;
@@ -300,8 +299,7 @@ function cleanPath(p) {
   const segs = p.split('/');
   if (segs.length > 6) throw fail(400, `${p}: フォルダが深すぎます(6階層まで)`);
   for (const s of segs) {
-    if (s.startsWith('.')) throw fail(400, `${p}: ドットで始まるファイルは使えません(.env などは「環境変数」に入れてください)`);
-    if (!segOk(s)) throw fail(400, `${p}: 使えない文字が入っています(/ や \ 、制御文字、名前の先頭・末尾のスペースは使えません)`);
+    if (!segOk(s)) throw fail(400, `${p}: 使えない名前です(制御文字や、「.」「..」だけの名前は使えません)`);
   }
   if (!extOf(p)) throw fail(400, `${p}: 拡張子が必要です`);
   return p;
@@ -374,7 +372,90 @@ function runnerMain() {
       const input = JSON.parse(Buffer.concat(chunks).toString('utf8'));
       const files = input.files;
       const vm = require('vm');
-      const ALLOWED = ['crypto', 'url', 'querystring', 'util', 'buffer', 'path', 'zlib', 'events', 'string_decoder', 'assert', 'stream', 'timers', 'timers/promises'];
+      const ALLOWED = ['crypto', 'url', 'querystring', 'util', 'buffer', 'path', 'zlib', 'events', 'string_decoder', 'assert', 'assert/strict', 'stream', 'stream/promises', 'stream/web', 'timers', 'timers/promises',
+        'http', 'https', 'http2', 'net', 'tls', 'dns', 'dns/promises', 'os', 'async_hooks', 'perf_hooks', 'punycode', 'constants', 'util/types', 'diagnostics_channel', 'process', 'console', 'fs', 'fs/promises'];
+
+      // ---- fs: プロジェクトの server.js / server/ の中身を読める「仮のファイル置き場」。書き込みはこの1回の実行の間だけ有効 ----
+      const mem = Object.create(null);
+      const has = (o, k) => Object.prototype.hasOwnProperty.call(o, k);
+      const fsKey = (p) => {
+        if (p && typeof p === 'object' && p.pathname) p = decodeURIComponent(p.pathname);
+        const parts = [];
+        for (const seg of String(p).split('/')) { if (seg === '' || seg === '.') continue; if (seg === '..') parts.pop(); else parts.push(seg); }
+        return parts.join('/');
+      };
+      const enoent = (p, sys) => Object.assign(new Error("ENOENT: no such file or directory, " + sys + " '" + p + "'"), { code: 'ENOENT', errno: -2, syscall: sys, path: String(p) });
+      const fileGet = (k) => (has(mem, k) ? mem[k] : has(files, k) ? files[k] : undefined); // undefined=無い / null=消した
+      const allKeys = () => { const s = new Set(Object.keys(files)); for (const k of Object.keys(mem)) { if (mem[k] === null) s.delete(k); else s.add(k); } return [...s].filter((k) => fileGet(k) != null); };
+      const isDir = (k) => k === '' || allKeys().some((f) => f.startsWith(k + '/'));
+      const mkStat = (k) => {
+        const f = fileGet(k), d = f == null && isDir(k);
+        if (f == null && !d) return null;
+        const size = f == null ? 0 : Buffer.byteLength(f);
+        return { size, mtimeMs: 0, mtime: new Date(0), isFile: () => f != null, isDirectory: () => d, isSymbolicLink: () => false };
+      };
+      const fsSync = {
+        readFileSync(p, o) { const k = fsKey(p), f = fileGet(k); if (f == null) throw enoent(p, 'open'); const enc = typeof o === 'string' ? o : o && o.encoding; return enc ? f : Buffer.from(f); },
+        existsSync(p) { return !!mkStat(fsKey(p)); },
+        statSync(p, o) { const st = mkStat(fsKey(p)); if (!st) { if (o && o.throwIfNoEntry === false) return undefined; throw enoent(p, 'stat'); } return st; },
+        readdirSync(p) {
+          const k = fsKey(p), pre = k ? k + '/' : '';
+          if (!isDir(k)) throw enoent(p, 'scandir');
+          return [...new Set(allKeys().filter((f) => f.startsWith(pre)).map((f) => f.slice(pre.length).split('/')[0]))].sort();
+        },
+        writeFileSync(p, d) { mem[fsKey(p)] = Buffer.isBuffer(d) || ArrayBuffer.isView(d) ? Buffer.from(d.buffer, d.byteOffset, d.byteLength).toString('utf8') : String(d); },
+        appendFileSync(p, d) { const k = fsKey(p); mem[k] = (fileGet(k) || '') + String(d); },
+        mkdirSync() { return undefined; },
+        unlinkSync(p) { const k = fsKey(p); if (fileGet(k) == null) throw enoent(p, 'unlink'); mem[k] = null; },
+        rmSync(p, o) { const k = fsKey(p); if (fileGet(k) == null) { if (o && o.force) return; throw enoent(p, 'rm'); } mem[k] = null; },
+      };
+      fsSync.lstatSync = fsSync.statSync; fsSync.accessSync = (p) => { if (!fsSync.existsSync(p)) throw enoent(p, 'access'); };
+      fsSync.realpathSync = (p) => '/' + fsKey(p);
+      const fsMod = { ...fsSync, constants: { F_OK: 0, R_OK: 4, W_OK: 2, X_OK: 1 }, promises: {} };
+      for (const n of Object.keys(fsSync)) {
+        if (n === 'existsSync') continue;
+        const base = n.replace(/Sync$/, '');
+        fsMod.promises[base] = async (...a) => fsSync[n](...a);
+        fsMod[base] = (...a) => { const cb = a.pop(); let r, e = null; try { r = fsSync[n](...a); } catch (x) { e = x; } process.nextTick(() => (e ? cb(e) : cb(null, r))); };
+      }
+      fsMod.exists = (p, cb) => process.nextTick(() => cb(fsSync.existsSync(p)));
+      const builtin = (name) => (name === 'fs' ? fsMod : name === 'fs/promises' ? fsMod.promises : require(name));
+      const builtinName = (spec) => { const n = String(spec).replace(/^node:/, ''); return ALLOWED.includes(n) ? n : null; };
+      const isEsm = (f, src) => f.endsWith('.mjs') || /^\s*(import\s*[\w{*"'$]|export\s+(default|const|let|var|function|class|async|\{|\*))/m.test(src);
+      const esmCache = Object.create(null);
+      const loadEsm = async (file) => {
+        if (esmCache[file]) return esmCache[file];
+        const dir = file.includes('/') ? file.slice(0, file.lastIndexOf('/')) : '';
+        const m = new vm.SourceTextModule(files[file], { identifier: file });
+        esmCache[file] = m;
+        await m.link(async (spec) => {
+          spec = String(spec);
+          if (spec.startsWith('./') || spec.startsWith('../')) {
+            const r = resolveFile(dir, spec);
+            if (!r) throw new Error('モジュールが見つかりません: ' + spec + '(server/ フォルダ内のファイルだけ読み込めます)');
+            if (r.endsWith('.json')) {
+              const v = JSON.parse(files[r]);
+              const sm = new vm.SyntheticModule(['default'], function () { this.setExport('default', v); });
+              await sm.link(() => {}); return sm;
+            }
+            if (!isEsm(r, files[r])) {
+              const v = load(r);
+              const names = v && typeof v === 'object' ? Object.keys(v).filter((k) => k !== 'default') : [];
+              const sm = new vm.SyntheticModule(['default', ...names], function () { this.setExport('default', v); for (const k of names) this.setExport(k, v[k]); });
+              await sm.link(() => {}); return sm;
+            }
+            return loadEsm(r);
+          }
+          const name = builtinName(spec);
+          if (!name) throw new Error('"' + spec + '" は使えません。使える標準モジュール: ' + ALLOWED.join(', ') + '(npm のパッケージは使えません)');
+          const v = builtin(name);
+          const names = Object.keys(v).filter((k) => k !== 'default');
+          const sm = new vm.SyntheticModule(['default', ...names], function () { this.setExport('default', v); for (const k of names) this.setExport(k, v[k]); });
+          await sm.link(() => {}); return sm;
+        });
+        await m.evaluate();
+        return m;
+      };
       const cache = Object.create(null);
       const resolveFile = (dir, spec) => {
         const parts = dir ? dir.split('/') : [];
@@ -383,7 +464,7 @@ function runnerMain() {
           if (seg === '..') { if (!parts.length) return null; parts.pop(); } else parts.push(seg);
         }
         const base = parts.join('/');
-        for (const c of [base, base + '.js', base + '.cjs', base + '.json', base + '/index.js']) {
+        for (const c of [base, base + '.js', base + '.mjs', base + '.cjs', base + '.json', base + '/index.js', base + '/index.mjs']) {
           if (Object.prototype.hasOwnProperty.call(files, c)) return c;
         }
         return null;
@@ -401,16 +482,17 @@ function runnerMain() {
             if (!r) throw new Error('モジュールが見つかりません: ' + spec + '(server/ フォルダ内のファイルだけ読み込めます)');
             return load(r);
           }
-          const name = spec.replace(/^node:/, '');
-          if (ALLOWED.includes(name)) return require(name);
-          throw new Error('"' + spec + '" は使えません。使える標準モジュール: ' + ALLOWED.join(', ') + '(通信は fetch が使えます)');
+          const name = builtinName(spec);
+          if (name) return builtin(name);
+          throw new Error('"' + spec + '" は使えません。使える標準モジュール: ' + ALLOWED.join(', ') + '(npm のパッケージは使えません)');
         };
         const fn = vm.runInThisContext('(function (exports, require, module, __filename, __dirname) {' + files[file] + '\n})', { filename: file });
         fn.call(m.exports, m.exports, req, m, file, dir);
         return m.exports;
       };
 
-      const mod = load('server.js');
+      if (!has(files, 'server.js')) throw new Error('server.js がありません');
+      const mod = isEsm('server.js', files['server.js']) ? (await loadEsm('server.js')).namespace : load('server.js');
       const R = input.req;
       let handler = typeof mod === 'function' ? mod : null;
       if (!handler && mod) {
@@ -487,7 +569,7 @@ function runServerCode({ files, env, req, timeoutMs }) {
     for (const [k, v] of Object.entries(env)) if (ENV_KEY_RE.test(k) && !ENV_RESERVED.test(k)) childEnv[k] = String(v);
     let child;
     try {
-      child = spawn(process.execPath, [PERM_FLAG, '--max-old-space-size=128', '-e', RUNNER_SRC], { env: childEnv, stdio: ['pipe', 'pipe', 'pipe'] });
+      child = spawn(process.execPath, [PERM_FLAG, '--experimental-vm-modules', '--no-warnings', '--max-old-space-size=128', '-e', RUNNER_SRC], { env: childEnv, stdio: ['pipe', 'pipe', 'pipe'] });
     } catch (e) {
       active--;
       return resolve({ status: 500, error: '実行を開始できませんでした: ' + e.message });
@@ -570,7 +652,7 @@ async function doDeploy(id, aid, entries) {
       if (typeof e.data !== 'string') throw fail(400, `${p}: 中身がありません`);
 
       if (isPrivatePath(p)) {
-        if (!isText || !['js', 'cjs', 'json'].includes(ext)) throw fail(400, `${p}: server.js と server/ フォルダには .js / .json だけ置けます`);
+        if (!isText || !['js', 'mjs', 'cjs', 'json'].includes(ext)) throw fail(400, `${p}: server.js と server/ フォルダには .js / .mjs / .cjs / .json だけ置けます`);
         priv[p] = ['t', e.data];
         manifest.push({ p, s: Buffer.byteLength(e.data), k: 'x' });
       } else {
@@ -1130,7 +1212,7 @@ function siteMain(P) { return wrap(async (req, res) => {
 
   let rel;
   rel = String(req.params[0] || '').normalize('NFC'); // Express がURLの %E3.. を日本語に戻し済み
-  if (rel.includes('\0') || rel.includes('\\') || rel.split('/').some((s) => s === '..')) return siteText(res, 400, 'Bad Request');
+  if (rel.includes('\0') || rel.split('/').some((s) => s === '..')) return siteText(res, 400, 'Bad Request');
   rel = rel.replace(/^\/+/, '');
 
   // --- サーバー機能: /api/* は server.js が受け持つ ---
