@@ -1003,7 +1003,7 @@ module.exports = async (req) => {
         <div class="legend"><span>画像・動画は${fmtBytes(S.cfg.maxMediaBytes || 4194304)}まで</span><span>server.js と server/ は非公開(サーバー用・サーバーを使わないなら不要)</span></div>` : ''}
       </div>
       <div class="dock glass"><div class="t">${dockText}</div>
-        <button class="btn primary" data-act="deploy" ${(!n || S.busy) ? 'disabled' : ''}>${icon('rocket')}デプロイ</button></div>`;
+        ${(!n && S.proj.deployed) ? `<button class="btn primary" data-act="redeploy" ${S.busy ? 'disabled' : ''}>${icon('rocket')}再デプロイ</button>` : `<button class="btn primary" data-act="deploy" ${(!n || S.busy) ? 'disabled' : ''}>${icon('rocket')}デプロイ</button>`}</div>`;
   }
 
   async function editFile(path) {
@@ -1048,6 +1048,23 @@ module.exports = async (req) => {
     editFile(path);
   }
 
+  // 再デプロイ: ファイルはそのまま、いまの内容でもう一度公開する(npm パッケージを入れ直すこともできる)
+  async function redeploy(reinstall) {
+    if (S.busy) return;
+    if (!S.proj.deployed) return toast('まだデプロイされていません', 'err');
+    const id = S.proj.id;
+    try {
+      S.busy = reinstall ? '再デプロイしています…(パッケージを入れ直すので、少し時間がかかります)' : '再デプロイしています…'; paintTab();
+      await api('POST', `/api/projects/${encodeURIComponent(id)}/redeploy`, { reinstall: !!reinstall });
+      await loadProject(id);
+      S.busy = '';
+      toast('再デプロイできました!', 'ok');
+      paintProject();
+    } catch (e) {
+      S.busy = ''; paintProject();
+      toast(e.message, 'err');
+    }
+  }
   async function deploy() {
     if (S.busy) return;
     const live = [...S.files.values()].filter((f) => f.status !== 'removed');
@@ -1197,6 +1214,15 @@ module.exports = async (req) =&gt; {
           </dl>
         </div>
       </div>
+      <div class="glass panel" style="margin-top:16px">
+        <h2>再デプロイ</h2>
+        <p class="sub">ファイルを変えずに、いまの内容でもう一度公開します。表示がおかしいとき、環境の入れ直しをしたいときに使えます。</p>
+        <div class="row">
+          <button class="btn primary" data-act="redeploy" ${(!p.deployed || S.busy) ? 'disabled' : ''}>${icon('rocket')}再デプロイ</button>
+          ${p.npm ? `<button class="btn" data-act="redeploy-npm" ${S.busy ? 'disabled' : ''}>${icon('rocket')}npm パッケージを入れ直して再デプロイ</button>` : ''}
+        </div>
+        ${p.npm ? '<p class="hint">「入れ直し」は、package.json の範囲で、いちばん新しいバージョンに更新します。</p>' : ''}
+      </div>
       <div class="glass panel danger-zone" style="margin-top:16px">
         <h2 style="color:var(--danger)">プロジェクトの削除</h2>
         <p class="sub">サイト・ファイル・環境変数がすべて消えます。元には戻せません。</p>
@@ -1251,6 +1277,8 @@ module.exports = async (req) =&gt; {
         toast('名前を変えました', 'ok'); paintProject();
       } catch (e) { toast(e.message, 'err'); }
     },
+    redeploy: () => redeploy(false),
+    'redeploy-npm': () => redeploy(true),
     'delete-project': async () => {
       const name = S.proj.name;
       const v = await promptDialog({ title: 'プロジェクトを削除', sub: `確認のため、プロジェクト名「${name}」を入力してください。`, label: 'プロジェクト名', placeholder: name, ok: '削除する' });
