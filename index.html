@@ -525,7 +525,7 @@ var GakuAcct = (function () {
   // ======================================================================
   // ログイン (GAKU acct)
   // ======================================================================
-  let exchanging = false;
+  let exchanging = false, loginTimer = 0;
   function setLoginStatus(msg, kind) {
     const el = $('#login-status');
     el.className = 'status ' + (kind || '');
@@ -545,7 +545,7 @@ var GakuAcct = (function () {
     exchanging = true;
     setLoginStatus('ログインしています…', 'busy');
     try {
-      const res = await fetch('/api/auth/gaku', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code }) });
+      const res = await fetch('/api/auth/gaku', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code }), signal: AbortSignal.timeout(40000) });
       const j = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(j.error || 'ログインできませんでした');
       S.token = j.token; S.user = j.user; lsSet(TOKEN_KEY, j.token);
@@ -570,6 +570,11 @@ var GakuAcct = (function () {
       setLoginStatus('確認しています…', 'busy');
       const c = GakuAcct.code();
       if (c) exchange(c);
+      else {
+        // ログアウトしたあとの2回目以降は、確認コードが自動で届かないことがあるので、こちらから取りに行く
+        const t = ++loginTimer;
+        setTimeout(() => { if (t === loginTimer && !S.token && !exchanging) continueWithGaku(); }, 1500);
+      }
     } else if (d.event === 'proof' && d.code) {
       exchange(d.code);
     } else if (d.event === 'ready') {
@@ -584,6 +589,15 @@ var GakuAcct = (function () {
     route();
   }
 
+  function reloadGaku() {
+    try {
+      const f = document.querySelector('iframe[title="GAKU acct"]') || document.querySelector('iframe');
+      if (!f) return;
+      const u = f.src;
+      f.src = 'about:blank';
+      setTimeout(() => { f.src = u; }, 60);
+    } catch { /* 無視 */ }
+  }
   let loggingOut = false;
   function resetWork() {
     S.proj = null; S.files = new Map(); S.env = null; S.envDirty = false; S.lastDeploy = null; S.testOut = null; S.busy = '';
@@ -596,6 +610,7 @@ var GakuAcct = (function () {
     if (!keepGaku) {
       setLoginStatus('ログアウトしています…', 'busy');
       try { await Promise.race([GakuAcct.call('logout'), new Promise((r) => setTimeout(r, 4000))]); } catch { /* ignore */ }
+      reloadGaku(); // 次のログインが確実に動くよう、GAKU acct の枠を読み込み直す
     }
     loggingOut = false;
     setLoginStatus('', '');
