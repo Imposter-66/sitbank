@@ -19,7 +19,7 @@ HTML・JS・画像・動画はもちろん、`server.js`(サーバー)と環境�
 | --- | --- |
 | `index.html` | 画面(ガラスデザイン)。ログイン / ホーム / プロジェクト(ファイル・環境変数・サーバー・設定) |
 | `server.js` | API、ログイン確認、デプロイ、公開サイトの配信、`server.js` の実行 |
-| `package.json` | 依存関係(`express`)と Node のバージョン(22.x) |
+| `package.json` | 依存関係(`express`、`semver`)と Node のバージョン(22.x) |
 | `README.md` | このファイル |
 
 ---
@@ -49,6 +49,7 @@ HTML・JS・画像・動画はもちろん、`server.js`(サーバー)と環境�
 | `SITE_HOST` | 任意(おすすめ) | 公開サイト専用のドメイン(例: `sitbank-sites.vercel.app`)。設定すると、サイトが別ドメインの「ふつうのサイト」として動きます。詳しくは「3.5 公開サイト専用ドメイン」 |
 | `SITE_DOMAIN` | 任意 | ワイルドカードのドメイン(例: `example.com`)。サイトごとに `https://<ID>.example.com/` で公開されます |
 | `ENABLE_SERVER_CODE` | 任意 | `0` にすると、サーバー機能(`server.js` の実行)を止めます |
+| `NPM_REGISTRY` | 任意 | npm のレジストリのURL(初期値 `https://registry.npmjs.org`) |
 | `SERVER_TIMEOUT_MS` | 任意 | `server.js` の制限時間(初期値 8000 = 8秒) |
 | `MAX_MEDIA_BYTES` | 任意 | 画像・動画1つの上限(初期値 4MB。Vercel の本文上限に合わせています) |
 | `SERBANK_BASE_URL` | 任意 | SerBANK のベースURL(テスト用。初期値は仕様のURL) |
@@ -79,7 +80,7 @@ git push -u origin main
 [Vercel](https://vercel.com) で **Add New → Project** からこのリポジトリを Import し、上の環境変数を入れて **Deploy** します。
 
 `server.js` が自動で認識されない、または `server.js`(サーバー機能)の実行が10秒で切れる場合は、
-プロジェクト直下に `vercel.json` を足してください。
+プロジェクト直下に `vercel.json` を足してください。(サイトの **npm パッケージのインストール**も、デプロイ中にこのサーバーが行うので、パッケージを使うなら 60 秒にしておくと安心です。)
 
 ```json
 {
@@ -169,8 +170,33 @@ module.exports = async (req) => {
 - **`require` でも `import` でも書けます**(`export default async (req) => …` / `export const GET = …` も可)。`server/` の中は `.js` `.mjs` `.cjs` `.json` を置けて、`import { x } from './server/lib.mjs'` のように読み込めます。
 - 使える Node.js 標準モジュール: `crypto url querystring util buffer path zlib events string_decoder assert stream timers http https http2 net tls dns os async_hooks perf_hooks fs` など(`node:` を付けてもOK)。通信は `fetch` や `https` が使えます。
 - `fs` は「プロジェクトの `server.js` と `server/` の中身」を読める仮のファイル置き場です(`fs.readFileSync('server/data.json')`、`readdirSync`、`existsSync` など)。書き込みもできますが、**その1回のリクエストの間だけ**有効で、終わると消えます。残したいデータは SerBANK へ。
-- `npm` のパッケージ(`node_modules`)、他のプログラムの起動(`child_process`)、Worker、`vm` はできません。**サーバーは、リクエストのたびに起動して終わる方式**なので、`app.listen()` で待ち受け続ける Express のようなプログラムは動きません(`(req) => …` の関数の形で書いてください)。
+- 他のプログラムの起動(`child_process`)、Worker、`vm` はできません。ネイティブのビルドが必要な npm パッケージ(`bcrypt`、`sharp`、`sqlite3` など)も動きません(代わりに `bcryptjs` のような、JavaScript だけで書かれたものを使ってください)。
 - `console.log` は、画面の「サーバー → 試してみる」で持ち主にだけ見えます。
+
+### npm パッケージと package.json(`npm install` の代わり)
+
+デプロイしたサイトの `server.js` で、npm のパッケージ(Express、`lodash`、`dayjs`、`zod` など)が使えます。**`npm install` を自分で実行する必要はありません。**
+
+1. プロジェクトに `package.json` を入れて、`dependencies` に使うパッケージを書きます。
+   ```json
+   {
+     "name": "my-site",
+     "dependencies": { "express": "^4.21.2", "dayjs": "^1.11.13" }
+   }
+   ```
+2. `package.json` と `server.js` などをアップロードして **デプロイ**します。
+3. デプロイするとき、SiTBANK が npm のレジストリからパッケージをダウンロードして保存します(「サーバー」タブに、入ったパッケージの数が出ます)。`dependencies` が前回と同じなら、2回目からは再インストールせず、すぐ終わります。
+4. `server.js` の中で、ふつうに `require('dayjs')` / `import dayjs from 'dayjs'` と書きます。
+
+- **Express / Koa / Fastify が、そのまま動きます。** `module.exports = app` でも、`app.listen(3000)` を呼ぶふつうの書き方でも、どちらでもOKです(実際には外へ公開せず、SiTBANK がリクエストを渡します)。ルートは `/api/…` から書いてください(例: `app.get('/api/hello', …)` → `/s/<ID>/api/hello`)。
+- **入口(サーバーのファイル)** は `server.js` です。無い場合は、`package.json` の `"main"`、または `"scripts": { "start": "node server/app.js" }` が `server/` の中のファイルを指していれば、それが入口になります。
+- `node_modules` フォルダは、**アップロードしないでください**(入れても無視されます)。`package-lock.json` / `yarn.lock` も使いません。
+- 安全のため、**インストール時のスクリプト(`postinstall` など)は実行しません**。ネイティブのビルドが必要なパッケージは動きません。
+- `devDependencies` はインストールしません。`npm run build` のような、ビルドの実行もできません(ビルドしたファイルをアップロードしてください)。
+- 入れられるのは、npm のレジストリにあるパッケージです(`git:` や URL での指定はできません)。数は最大300個、圧縮後の大きさは約1.3MBまでです(Express だけなら約0.4MB)。
+- インストールに時間がかかるので、Vercel の `vercel.json` で `maxDuration` を 60 にしておくと安心です。別のレジストリを使うときは、環境変数 `NPM_REGISTRY` を設定します。
+
+---
 
 ### 環境変数と SerBANK
 
@@ -252,7 +278,7 @@ HTML・CSS・JavaScript だけで動く、〇〇のサイトを作ってくだ�
 
 【server.js の書き方】
 module.exports = async (req) => { ... } の形で、req.method / req.path / req.query / req.body が使えます。
-オブジェクトを return すると JSON で返ります。通信は fetch が使えます(npm のパッケージは使えません)。
+オブジェクトを return すると JSON で返ります。通信は fetch が使えます。npm のパッケージが必要なら、package.json の dependencies に書きます(Express も使えます)。
 index.html からは fetch('api/xxx') のように、相対パスで呼んでください。
 
 【SerBANK の制限】
@@ -289,6 +315,7 @@ index.html からは fetch('api/xxx') のように、相対パスで呼んでく
 - **環境変数・アカウント情報・server.js は暗号化**(AES-256-GCM)して SerBANK に保存します。SerBANK の Public キーは誰でも読めるため、平文では置きません。
 - **ログインできるのは GAKU acct のアカウントだけ**です。確認コードは1回限りで、ログインの記録は署名つきトークン(14日)です。
 - **`server.js` は別プロセスで実行**し、Node の permission model で「ファイル読み取り・子プロセス・Worker・バインディング」を禁止、環境変数はそのプロジェクトのものだけ、メモリ128MB、制限時間つきです。手元の試験では、`fs` / `child_process` / `process.binding` / `/proc/<親>/environ` はすべて拒否され、親の Secret キーも見えませんでした(サイト側の `fs` は、本物のファイルではなく、プロジェクトの中身だけを返す仮のものです)。
+  npm パッケージも同じ制限(ファイルは、そのプロジェクトのパッケージだけ読める・子プロセスは起動できない)の中で動きますが、**パッケージそのものの安全性は、npm 上の公開コードを信頼する形**になります。
   ただし通信(`fetch` / `http` / `https` / `net`)は制限していないので、サーバーコードから、SiTBANK を動かしているサーバーと同じネットワークの中のものへアクセスできてしまいます。
   ただし Node の permission model は「完全な防御」とは公式にも言っていません。**学校の外の不特定多数に開放する場合は、`ENABLE_SERVER_CODE=0` でサーバー機能を止める**ことをおすすめします。
 - 使いすぎ防止として、ログイン・デプロイ・サーバー実行には回数制限があります。
