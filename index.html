@@ -544,14 +544,17 @@ var GakuAcct = (function () {
   async function exchange(code) {
     if (S.token || exchanging || !code) return;
     exchanging = true;
+    dlog('login', 'SiTBANK サーバーへ確認コードを送る');
     setLoginStatus('ログインしています…', 'busy');
     try {
       const res = await fetch('/api/auth/gaku', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code }), signal: AbortSignal.timeout(40000) });
       const j = await res.json().catch(() => ({}));
+      dlog('login', `サーバーの返事: ${res.status} ${res.ok ? 'OK' : short(j.error)}`);
       if (!res.ok) throw new Error(j.error || 'ログインできませんでした');
       S.token = j.token; S.user = j.user; lsSet(TOKEN_KEY, j.token);
       await enterApp();
     } catch (e) {
+      dlog('login', '失敗: ' + e.message);
       setLoginStatus(e.message, 'err');
       const u = GakuAcct.user();
       if (u) $('#login-status').insertAdjacentHTML('beforeend', '<button class="btn sm" data-act="gaku-continue">もう一度ためす</button>');
@@ -625,6 +628,7 @@ var GakuAcct = (function () {
   }
   async function doLogout(keepGaku) {
     if (loggingOut) return;
+    dlog('logout', `ログアウト開始 keepGaku=${!!keepGaku}`);
     loggingOut = true;
     S.token = null; S.user = null; S.projects = []; lsDel(TOKEN_KEY); resetWork();
     show('login'); history.replaceState(null, '', '#/');
@@ -634,6 +638,7 @@ var GakuAcct = (function () {
       reloadGaku(); // 次のログインが確実に動くよう、GAKU acct の枠を読み込み直す
     }
     loggingOut = false;
+    dlog('logout', 'ログアウト終わり');
     setLoginStatus('', '');
     offerContinue();
   }
@@ -1371,6 +1376,94 @@ module.exports = async (req) =&gt; {
     e.target.value = ''; await addFiles(l);
   });
   window.addEventListener('beforeunload', (e) => { if (S.token && pendingCount()) { e.preventDefault(); e.returnValue = ''; } });
+
+  // ======================================================================
+  // 診断ログ(ログインできないときの原因調べ用。右下の「診断」から開く)
+  // ======================================================================
+  const BUILD = '2026-10-29-diag2';
+  const DIAG = [];
+  const t0 = Date.now();
+  function dlog(kind, msg) {
+    const sec = ((Date.now() - t0) / 1000).toFixed(1).padStart(6);
+    DIAG.push(`[${sec}s] ${kind.padEnd(8)} ${msg}`);
+    if (DIAG.length > 400) DIAG.shift();
+    const ta = document.getElementById('diag-text');
+    if (ta && !ta.closest('[hidden]')) { ta.value = DIAG.join('\n'); ta.scrollTop = ta.scrollHeight; }
+  }
+  const short = (v) => { try { const x = typeof v === 'string' ? v : JSON.stringify(v); return x.length > 160 ? x.slice(0, 160) + '…' : x; } catch { return String(v); } };
+  window.addEventListener('error', (e) => dlog('ERROR', `${e.message} @${(e.filename || '').split('/').pop()}:${e.lineno}`));
+  window.addEventListener('unhandledrejection', (e) => dlog('ERROR', 'promise: ' + short((e.reason && e.reason.message) || e.reason)));
+  dlog('起動', `build=${BUILD} url=${location.origin}${location.pathname} ua=${navigator.userAgent.slice(0, 80)}`);
+  // GAKU acct の枠から届くすべての信号を記録する(SiTBANK が受け取ったか・無視したかも)
+  const inFrameTree = (w, src, depth) => {
+    if (depth > 3) return false;
+    let n = 0; try { n = w.frames.length; } catch { /* 無視 */ }
+    for (let i = 0; i < n; i++) { let c = null; try { c = w.frames[i]; } catch { /* 無視 */ } if (c && (c === src || inFrameTree(c, src, depth + 1))) return true; }
+    return false;
+  };
+  const fromMyFrame = (src) => { for (const f of document.querySelectorAll('iframe')) { const w = f.contentWindow; if (w && (w === src || inFrameTree(w, src, 0))) return true; } return false; };
+  let otherMsgs = 0;
+  window.addEventListener('message', (e) => {
+    const d = e.data;
+    if (d && typeof d === 'object' && typeof d.type === 'string' && d.type.indexOf('gakuacct') === 0) {
+      const keys = Object.keys(d).filter((k) => !['type', 'event', 'code'].includes(k)).slice(0, 6).join(',');
+      dlog('GAKU', `${d.type}:${d.event || d.fn || ''}${d.via ? '(' + d.via + ')' : ''} origin=${e.origin} 自分の枠から=${fromMyFrame(e.source) ? 'はい' : 'いいえ(無視される)'}${d.code ? ' code=あり' : ''} [${keys}]`);
+    } else if (++otherMsgs <= 5) dlog('msg', `その他の信号 origin=${e.origin} ${short(d)}`);
+  });
+  document.querySelectorAll('iframe').forEach((f) => {
+    let loads = 0;
+    f.addEventListener('load', () => dlog('枠', `iframe load #${++loads} (${(f.src || '').replace(/^(https?:\/\/[^/]+).*/, '$1')})`));
+  });
+  GakuAcct.on((d) => dlog('受信', `SiTBANK が受け取った: ${d.event}${d.via ? '(' + d.via + ')' : ''}`));
+
+  async function runDiag() {
+    dlog('診断', '--- 自動チェック開始 ---');
+    try { dlog('診断', `localStorage=${(() => { try { localStorage.setItem('_t', '1'); localStorage.removeItem('_t'); return '使える'; } catch (e) { return '使えない: ' + e.message; } })()} cookie=${navigator.cookieEnabled}`); } catch { /* 無視 */ }
+    dlog('診断', `S.token=${S.token ? 'あり' : 'なし'} user=${S.user ? S.user.name : 'なし'} exchanging=${exchanging} loggingOut=${loggingOut} GakuAcct.user=${GakuAcct.user() ? 'あり' : 'なし'} code=${GakuAcct.code() ? 'あり' : 'なし'}`);
+    const f = document.querySelector('iframe[title="GAKU acct"]') || document.querySelector('iframe');
+    if (!f) dlog('診断', '✗ GAKU acct の枠(iframe)が見つかりません');
+    else {
+      const r = f.getBoundingClientRect();
+      dlog('診断', `枠: ${Math.round(r.width)}x${Math.round(r.height)} 表示=${r.width > 0 && r.height > 0 ? 'されている' : '✗ 見えていない(大きさ0)'} view-login=${$('#view-login').classList.contains('offscreen') ? 'offscreen' : '表示中'}`);
+    }
+    try { const c = await fetch('/api/config').then((x) => x.json()); dlog('診断', `サーバー config: configured=${c.configured} secureSecret=${c.secureSecret}`); } catch (e) { dlog('診断', '✗ /api/config に接続できません: ' + e.message); }
+    const t1 = Date.now();
+    const r1 = await Promise.race([GakuAcct.call('proof'), new Promise((x) => setTimeout(() => x({ timeout: true }), 10000))]);
+    dlog('診断', `GAKU acct に確認コードを要求 → ${short(r1 && r1.code === undefined ? r1 : { ok: r1.ok, code: r1.ok ? '(取得)' : r1.code, message: r1.message })} (${Date.now() - t1}ms)`);
+    if (r1 && r1.code === 'wait') dlog('診断', '→ ✗ GAKU acct の枠から、まだ一度も信号が届いていません(枠が読み込めていない、または信号が届いていない)');
+    else if (r1 && r1.timeout) dlog('診断', '→ ✗ GAKU acct が10秒以内に返事をしませんでした');
+    else if (r1 && r1.code === 'session') dlog('診断', '→ GAKU acct の枠はつながっていますが、ログインしていない状態です(枠の中でログインしてください)');
+    else if (r1 && r1.ok) dlog('診断', '→ GAKU acct にはログインできています。SiTBANK へ入る処理を試します');
+    dlog('診断', '--- 自動チェック終わり ---');
+    return r1;
+  }
+  function openDiag() {
+    let box = document.getElementById('diag');
+    if (!box) {
+      box = document.createElement('div');
+      box.id = 'diag';
+      box.style.cssText = 'position:fixed;inset:0;z-index:9999;background:rgba(10,15,30,.55);display:grid;place-items:center;padding:14px';
+      box.innerHTML = `<div class="glass" style="width:min(720px,100%);max-height:92vh;display:flex;flex-direction:column;gap:10px;padding:16px;border-radius:20px">
+        <div class="row" style="justify-content:space-between"><b>診断ログ</b><span class="hint mono">build ${BUILD}</span></div>
+        <textarea id="diag-text" readonly style="flex:1;min-height:46vh;width:100%;font:12px/1.5 ui-monospace,Menlo,monospace;border-radius:12px;border:1px solid rgba(0,0,0,.15);padding:10px;background:rgba(255,255,255,.85);color:#111;resize:none"></textarea>
+        <div class="row"><button class="btn primary" id="diag-run">自動チェックを実行</button><button class="btn" id="diag-copy">コピー</button><button class="btn" id="diag-close" style="margin-left:auto">閉じる</button></div>
+        <div class="hint">「コピー」を押して、そのまま貼り付けて送ってください(パスワードや確認コードそのものは含まれません)。</div></div>`;
+      document.body.appendChild(box);
+      box.querySelector('#diag-close').onclick = () => { box.hidden = true; };
+      box.querySelector('#diag-run').onclick = async () => { const r = await runDiag(); if (r && r.ok && r.code && !S.token) exchange(r.code); };
+      box.querySelector('#diag-copy').onclick = async () => {
+        const ta = box.querySelector('#diag-text');
+        try { await navigator.clipboard.writeText(ta.value); toast('コピーしました', 'ok'); } catch { ta.select(); document.execCommand('copy'); toast('コピーしました', 'ok'); }
+      };
+    }
+    box.hidden = false;
+    const ta = box.querySelector('#diag-text'); ta.value = DIAG.join('\n'); ta.scrollTop = ta.scrollHeight;
+  }
+  const dbtn = document.createElement('button');
+  dbtn.textContent = '診断';
+  dbtn.style.cssText = 'position:fixed;right:10px;bottom:10px;z-index:9998;font:11px system-ui;padding:5px 10px;border-radius:999px;border:1px solid rgba(0,0,0,.15);background:rgba(255,255,255,.7);color:#334;opacity:.75;cursor:pointer;backdrop-filter:blur(8px)';
+  dbtn.onclick = openDiag;
+  document.body.appendChild(dbtn);
 
   // ======================================================================
   // 起動
