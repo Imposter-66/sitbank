@@ -733,7 +733,7 @@ var GakuAcct = (function () {
     if (/[\p{Cc}\p{Cs}]/u.test(s)) return false;
     return true;
   }
-  const isPrivate = (p) => p === 'server.js' || p.startsWith('server/');
+  const isPrivate = (p) => p === 'server.js' || p === 'package.json' || p.startsWith('server/');
   function kindOf(p) {
     const e = extOf(p);
     if (isPrivate(p)) return ['js', 'mjs', 'cjs', 'json'].includes(e) ? 'x' : null;
@@ -757,7 +757,7 @@ var GakuAcct = (function () {
     for (let i = 0; i < u.length; i += 0x8000) s += String.fromCharCode.apply(null, u.subarray(i, i + 0x8000));
     return btoa(s);
   };
-  const SKIP = /(^|\/)(node_modules|\.git|\.svn|__MACOSX)(\/|$)|(^|\/)(\.DS_Store|Thumbs\.db)$/;
+  const SKIP = /(^|\/)(\.git|\.svn|__MACOSX)(\/|$)|(^|\/)(\.DS_Store|Thumbs\.db)$/;
 
   function stripCommonRoot(items) {
     if (!items.length || items.some((i) => !i.path.includes('/'))) return items;
@@ -767,10 +767,12 @@ var GakuAcct = (function () {
   }
 
   async function addFiles(items) {
-    let added = 0; const notes = [];
+    let added = 0, skippedNm = false; const notes = [];
     for (const it of items) {
       const path = it.path.normalize('NFC').replace(/^\/+/, '');
       if (SKIP.test(path)) continue;
+      if (path.split('/').includes('node_modules')) { skippedNm = true; continue; } // node_modules は、デプロイ時に自動でインストールする
+      if (/(^|\/)(package-lock\.json|npm-shrinkwrap\.json|yarn\.lock|pnpm-lock\.yaml)$/.test(path)) continue;
       const bad = checkPath(path);
       if (bad) { notes.push(`${path}: ${bad}`); continue; }
       const kind = kindOf(path);
@@ -793,6 +795,7 @@ var GakuAcct = (function () {
     }
     if (S.files.size > (S.cfg.maxFiles || 150)) toast(`ファイルは${S.cfg.maxFiles || 150}個までです`, 'err');
     if (added) toast(`${added}個のファイルを追加しました。「デプロイ」を押すと公開されます`, 'ok');
+    if (skippedNm) toast('node_modules は入れなくて大丈夫です。package.json があれば、デプロイ時に自動でインストールします', 'ok');
     if (notes.length) toast(notes.slice(0, 2).join(' / ') + (notes.length > 2 ? ` ほか${notes.length - 2}件` : ''), 'err');
     S.lastDeploy = null;
     paintTab();
@@ -1059,7 +1062,7 @@ module.exports = async (req) => {
         const r = await api('POST', `/api/projects/${encodeURIComponent(id)}/media`, f.blob, { headers: { 'X-Site-Path': encodeURIComponent(f.path), 'Content-Type': 'application/octet-stream' } });
         f.ticket = r.ticket;
       }
-      S.busy = 'デプロイしています…'; paintTab();
+      S.busy = [...S.files.values()].some((f) => f.path === 'package.json' && f.status !== 'removed') ? 'デプロイしています…(npm パッケージのインストールに、少し時間がかかります)' : 'デプロイしています…'; paintTab();
       for (const f of live) {
         if (f.status === 'kept') entries.push({ path: f.path, keep: true });
         else if (f.kind === 'm') entries.push({ path: f.path, ticket: f.ticket });
@@ -1141,6 +1144,8 @@ module.exports = async (req) => {
           ${hasServerFile() ? '' : `<button class="btn primary" data-act="add-server">${icon('plus')}サンプルの server.js を追加</button>`}
           <button class="btn" data-act="tab" data-tab="env">${icon('key')}環境変数をひらく</button>
         </div>
+        ${p.npm ? `<div class="callout" style="margin-bottom:10px"><b>npm パッケージ ${p.npm.count}個</b>(${fmtBytes(p.npm.size)})がインストール済みです。<div class="hint mono" style="margin-top:4px;word-break:break-all">${esc((p.npm.list || []).slice(0, 12).join(', '))}${(p.npm.list || []).length > 12 ? ' …' : ''}</div>${(p.npm.warnings || []).map((w) => `<div class="hint">⚠ ${esc(w)}</div>`).join('')}</div>` : ''}
+        <p class="hint">npm のパッケージを使うときは、<span class="mono">package.json</span> を一緒にアップロードして、<span class="mono">dependencies</span> に書いてください。デプロイするとき、自動でインストールされます(Express などもそのまま動きます)。</p>
         <pre class="code mono">// server.js
 module.exports = async (req) =&gt; {
   // req.method / req.path / req.query / req.headers / req.body
