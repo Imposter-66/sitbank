@@ -1326,6 +1326,8 @@ module.exports = async (req) =&gt; {
     },
     redeploy: () => redeploy(false),
     'redeploy-npm': () => redeploy(true),
+    'gaku-reload': () => { reloadGaku(); dlog('枠', '手動で読み込み直し'); const st = $('#login-status'); if (st) { delete st.dataset.silent; st.className = 'status'; st.textContent = ''; } },
+    'open-diag': () => openDiag(),
     'delete-project': async () => {
       const name = S.proj.name;
       const v = await promptDialog({ title: 'プロジェクトを削除', sub: `確認のため、プロジェクト名「${name}」を入力してください。`, label: 'プロジェクト名', placeholder: name, ok: '削除する' });
@@ -1380,7 +1382,7 @@ module.exports = async (req) =&gt; {
   // ======================================================================
   // 診断ログ(ログインできないときの原因調べ用。右下の「診断」から開く)
   // ======================================================================
-  const BUILD = '2026-10-29-diag2';
+  const BUILD = '2026-10-30-diag3';
   const DIAG = [];
   const t0 = Date.now();
   function dlog(kind, msg) {
@@ -1414,6 +1416,23 @@ module.exports = async (req) =&gt; {
     let loads = 0;
     f.addEventListener('load', () => dlog('枠', `iframe load #${++loads} (${(f.src || '').replace(/^(https?:\/\/[^/]+).*/, '$1')})`));
   });
+  document.addEventListener('securitypolicyviolation', (e) => dlog('CSP', `${e.violatedDirective} blocked=${e.blockedURI}`));
+  let acctSeen = false;
+  GakuAcct.on(() => { acctSeen = true; });
+  // ログイン画面を開いて10秒たっても GAKU acct の枠から信号が来ないときは、案内を出し、枠を1回だけ自動で読み込み直す
+  let silentRetried = false;
+  setInterval(() => {
+    if (acctSeen || S.token || $('#view-login').classList.contains('offscreen')) return;
+    if (Date.now() - t0 < 10000) return;
+    const st = $('#login-status');
+    if (st && !st.dataset.silent) {
+      st.dataset.silent = '1';
+      st.className = 'status err';
+      st.innerHTML = '<span>GAKU acct の枠から応答がありません。枠が真っ白・エラーのときは、Google に学校のアカウントでログインしているか、学校のフィルターやブラウザの設定(サードパーティ Cookie)を確認してください。</span><button class="btn sm" data-act="gaku-reload">枠を読み込み直す</button><button class="btn sm" data-act="open-diag">診断</button>';
+      dlog('枠', '10秒たっても GAKU acct から信号が届かない');
+    }
+    if (!silentRetried && Date.now() - t0 > 14000) { silentRetried = true; dlog('枠', '枠を自動で読み込み直します'); reloadGaku(); }
+  }, 2000);
   GakuAcct.on((d) => dlog('受信', `SiTBANK が受け取った: ${d.event}${d.via ? '(' + d.via + ')' : ''}`));
 
   async function runDiag() {
@@ -1427,6 +1446,12 @@ module.exports = async (req) =&gt; {
       dlog('診断', `枠: ${Math.round(r.width)}x${Math.round(r.height)} 表示=${r.width > 0 && r.height > 0 ? 'されている' : '✗ 見えていない(大きさ0)'} view-login=${$('#view-login').classList.contains('offscreen') ? 'offscreen' : '表示中'}`);
     }
     try { const c = await fetch('/api/config').then((x) => x.json()); dlog('診断', `サーバー config: configured=${c.configured} secureSecret=${c.secureSecret}`); } catch (e) { dlog('診断', '✗ /api/config に接続できません: ' + e.message); }
+    for (const u of ['https://script.google.com/', 'https://script.googleusercontent.com/', 'https://accounts.google.com/', 'https://ssl.gstatic.com/']) {
+      const tp = Date.now();
+      try { await fetch(u, { mode: 'no-cors', cache: 'no-store', signal: AbortSignal.timeout(8000) }); dlog('診断', `通信: ${u.replace('https://', '')} → つながる (${Date.now() - tp}ms)`); }
+      catch (e) { dlog('診断', `通信: ${u.replace('https://', '')} → ✗ つながらない(${e.name}) 学校のフィルター・ネットワークで止められているかもしれません`); }
+    }
+    try { if (document.hasStorageAccess) dlog('診断', `サードパーティの保存(hasStorageAccess)=${await document.hasStorageAccess()}`); } catch { /* 無視 */ }
     const t1 = Date.now();
     const r1 = await Promise.race([GakuAcct.call('proof'), new Promise((x) => setTimeout(() => x({ timeout: true }), 10000))]);
     dlog('診断', `GAKU acct に確認コードを要求 → ${short(r1 && r1.code === undefined ? r1 : { ok: r1.ok, code: r1.ok ? '(取得)' : r1.code, message: r1.message })} (${Date.now() - t1}ms)`);
