@@ -1117,6 +1117,16 @@ app.use((req, res, next) => {
 
 const indexHtml = fs.readFileSync(path.join(__dirname, 'index.html'), 'utf8');
 
+// サイトのアイコン(index.html に埋め込んだ画像を、/favicon.ico と /icon.png でも配る)
+const iconM = /rel="icon"[^>]*href="data:image\/png;base64,([A-Za-z0-9+/=]+)"/.exec(indexHtml);
+const iconPng = iconM ? Buffer.from(iconM[1], 'base64') : null;
+for (const p of ['/favicon.ico', '/favicon.png', '/icon.png', '/apple-touch-icon.png']) {
+  app.get(p, (req, res) => {
+    if (!iconPng) return res.status(404).end();
+    res.set('Cache-Control', 'public, max-age=86400').type('image/png').send(iconPng);
+  });
+}
+
 app.get('/', (req, res) => {
   res.set({ 'Cache-Control': 'no-cache', 'Content-Security-Policy': "frame-ancestors 'none'", 'X-Content-Type-Options': 'nosniff' });
   res.type('html').send(indexHtml);
