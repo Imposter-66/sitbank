@@ -1127,6 +1127,29 @@ for (const p of ['/favicon.ico', '/favicon.png', '/icon.png', '/apple-touch-icon
   });
 }
 
+// GAKU acct の枠だけを置いた、ごく単純なテストページ(ログインできないときの切り分け用)
+app.get('/gaku-test', (req, res) => {
+  const src = escHtml(GAKU_URL + (GAKU_URL.includes('?') ? '&' : '?') + 'embed=1');
+  res.set({ 'Cache-Control': 'no-store', 'Content-Security-Policy': "frame-ancestors 'none'" });
+  res.type('html').send(`<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>GAKU acct 単純テスト</title>
+<style>body{font:14px/1.5 system-ui,sans-serif;margin:12px;max-width:760px}iframe{border:1px solid #ccc;border-radius:12px;max-width:100%}pre{background:#111;color:#cfe;padding:10px;border-radius:10px;white-space:pre-wrap;word-break:break-all;min-height:120px}button{padding:6px 12px;margin:4px 4px 8px 0}</style></head><body>
+<h3>GAKU acct 単純テスト</h3><p>SiTBANK の他のプログラムを使わず、枠と信号の受け取りだけを試します。枠の中でログインして、下の記録を見てください。</p>
+<iframe id="f" src="${src}" width="420" height="520" allow="clipboard-write" title="GAKU acct"></iframe><br>
+<button id="hello">hello を送る</button><button id="copy">記録をコピー</button><pre id="log"></pre>
+<script>
+var t0=Date.now(),L=document.getElementById('log'),lines=[];
+function log(s){var l='['+((Date.now()-t0)/1000).toFixed(1)+'s] '+s;lines.push(l);L.textContent=lines.join('\\n')}
+log('ページ表示 '+location.origin+' / '+navigator.userAgent.slice(0,70));
+window.addEventListener('message',function(e){var d=e.data,s;try{var c={};if(d&&typeof d==='object'){for(var k in d)c[k]=(k==='code'&&d[k])?'(あり)':d[k]}s=JSON.stringify(c)}catch(x){s=String(d)}log('受信 origin='+e.origin+' '+s.slice(0,200))});
+var f=document.getElementById('f');f.addEventListener('load',function(){log('iframe load');hello()});
+function each(w,dep){if(!w||dep>3)return;try{w.postMessage({type:'gakuacct-hello'},'*')}catch(x){}var n=0;try{n=w.frames.length}catch(x){}for(var i=0;i<n;i++){try{each(w.frames[i],dep+1)}catch(x){}}}
+function hello(){log('hello を送った');each(f.contentWindow,0)}
+document.getElementById('hello').onclick=hello;
+document.getElementById('copy').onclick=function(){var ta=document.createElement('textarea');ta.value=lines.join('\\n');document.body.appendChild(ta);ta.select();try{navigator.clipboard.writeText(ta.value)}catch(x){document.execCommand('copy')}ta.remove();log('コピーしました')};
+setTimeout(hello,2500);setTimeout(hello,6000);
+</script></body></html>`);
+});
+
 app.get('/', (req, res) => {
   res.set({ 'Cache-Control': 'no-cache', 'Content-Security-Policy': "frame-ancestors 'none'", 'X-Content-Type-Options': 'nosniff' });
   res.type('html').send(indexHtml);
