@@ -931,7 +931,7 @@ function readTicket(t, pid) {
   } catch { return null; }
 }
 
-async function doDeploy(id, aid, entries) {
+async function doDeploy(id, aid, entries, opts = {}) {
   if (!Array.isArray(entries) || !entries.length) throw fail(400, 'ファイルがありません');
   if (entries.length > MAX_FILES) throw fail(400, `ファイルは最大${MAX_FILES}個までです`);
 
@@ -1009,12 +1009,12 @@ async function doDeploy(id, aid, entries) {
     if (pj) {
       const plan = npmPlan(pj[1]);
       if (!plan.none) {
-        if (meta.nm && meta.nm.hash === plan.hash) nmMeta = meta.nm;
+        if (meta.nm && meta.nm.hash === plan.hash && !opts.reinstall) nmMeta = meta.nm;
         else {
           const inst = await npmInstall(plan.deps, plan.opt);
           nmChunks = splitChunks(zlib.gzipSync(Buffer.from(JSON.stringify(inst.files)), { level: 9 }).toString('base64'));
           if (nmChunks.length > MAX_NM_CHUNKS) throw fail(413, `パッケージが大きすぎます(圧縮後 約${Math.round(nmChunks.join('').length * 3 / 4 / 1024)}KB / 上限 約${Math.round(MAX_NM_CHUNKS * CHUNK_CHARS * 3 / 4 / 1024)}KB)。使わないパッケージを減らしてください`);
-          nmMeta = { hash: plan.hash, n: nmChunks.length, count: inst.count, size: inst.size, list: inst.list.slice(0, 60), warnings: inst.warnings.slice(0, 10) };
+          nmMeta = { hash: plan.hash + (opts.reinstall ? Date.now().toString(36).slice(-4) : ''), n: nmChunks.length, count: inst.count, size: inst.size, list: inst.list.slice(0, 60), warnings: inst.warnings.slice(0, 10) };
         }
       }
     }
@@ -1276,6 +1276,17 @@ api.post('/projects/:id/deploy', authMw, wrap(async (req, res) => {
   const { id } = await ownProject(req);
   rateLimit('deploy:' + req.aid, 30, 60000);
   const meta = await doDeploy(id, req.aid, req.body && req.body.entries);
+  res.json({ ok: true, ...summarize(id, meta), version: meta.ver });
+}));
+
+// 再デプロイ: 公開中のファイルをそのまま、もう一度デプロイする(reinstall: true なら npm パッケージも入れ直して最新にする)
+api.post('/projects/:id/redeploy', authMw, wrap(async (req, res) => {
+  const { id } = await ownProject(req);
+  rateLimit('deploy:' + req.aid, 30, 60000);
+  const meta0 = await loadProject(id, { fresh: true });
+  if (!meta0.ver || !(meta0.files || []).length) throw fail(400, 'まだデプロイされていません。先にファイルをデプロイしてください');
+  const entries = meta0.files.map((f) => ({ path: f.p, keep: true }));
+  const meta = await doDeploy(id, req.aid, entries, { reinstall: !!(req.body && req.body.reinstall) });
   res.json({ ok: true, ...summarize(id, meta), version: meta.ver });
 }));
 
