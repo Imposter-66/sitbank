@@ -312,7 +312,24 @@ function cleanPath(p) {
   if (!extOf(p)) throw fail(400, `${p}: 拡張子が必要です`);
   return p;
 }
-const isPrivatePath = (p) => p === 'server.js' || p.startsWith('server/');
+const isPrivatePath = (p) => p === 'server.js' || p === 'package.json' || p.startsWith('server/');
+
+// サーバーの入口: server.js があればそれ。無ければ package.json の main か scripts.start(node ○○)で server/ 内を指していればそれ
+function entryOf(priv) {
+  if (priv['server.js']) return 'server.js';
+  const pj = priv['package.json'];
+  if (!pj) return null;
+  let j; try { j = JSON.parse(pj[1]); } catch { return null; }
+  const cand = [];
+  if (j && typeof j.main === 'string') cand.push(j.main);
+  const m = j && j.scripts && typeof j.scripts.start === 'string' && /^\s*node\s+(?:--?\S+\s+)*(\S+)\s*$/.exec(j.scripts.start);
+  if (m) cand.push(m[1]);
+  for (let c of cand) {
+    c = c.replace(/^\.?\//, '');
+    if (isPrivatePath(c) && c !== 'package.json' && priv[c] && /\.(m?js|cjs)$/.test(c)) return c;
+  }
+  return null;
+}
 
 function cleanEnvList(list) {
   if (!Array.isArray(list)) throw fail(400, '環境変数の形式が正しくありません');
@@ -380,6 +397,20 @@ function runnerMain() {
       const input = JSON.parse(Buffer.concat(chunks).toString('utf8'));
       const files = input.files;
       const vm = require('vm');
+      const nmRequire = input.nm ? require('module').createRequire(input.nm + '/node_modules/.sitbank.js') : null;
+      // Express などが app.listen() を呼んでも、外には公開せず、こちらで受け取ってリクエストを渡す
+      const http = require('http');
+      let capturedSrv = null;
+      const origCreate = http.createServer;
+      http.createServer = function () {
+        const srv = origCreate.apply(this, arguments);
+        srv.listen = function () {
+          capturedSrv = srv;
+          const cb = Array.prototype.find.call(arguments, (x) => typeof x === 'function');
+          return Object.getPrototypeOf(srv).listen.call(srv, 0, '127.0.0.1', cb);
+        };
+        return srv;
+      };
       const ALLOWED = ['crypto', 'url', 'querystring', 'util', 'buffer', 'path', 'zlib', 'events', 'string_decoder', 'assert', 'assert/strict', 'stream', 'stream/promises', 'stream/web', 'timers', 'timers/promises',
         'http', 'https', 'http2', 'net', 'tls', 'dns', 'dns/promises', 'os', 'async_hooks', 'perf_hooks', 'punycode', 'constants', 'util/types', 'diagnostics_channel', 'process', 'console', 'fs', 'fs/promises'];
 
@@ -455,8 +486,14 @@ function runnerMain() {
             return loadEsm(r);
           }
           const name = builtinName(spec);
-          if (!name) throw new Error('"' + spec + '" は使えません。使える標準モジュール: ' + ALLOWED.join(', ') + '(npm のパッケージは使えません)');
-          const v = builtin(name);
+          let v;
+          if (name) v = builtin(name);
+          else if (nmRequire) {
+            try { v = nmRequire(spec); } catch (e) {
+              if (e && e.code === 'MODULE_NOT_FOUND') throw new Error('"' + spec + '" が見つかりません。package.json の dependencies に書いてデプロイしてください');
+              throw e;
+            }
+          } else throw new Error('"' + spec + '" は使えません。使える標準モジュール: ' + ALLOWED.join(', ') + '。npm のパッケージは、package.json の dependencies に書いてデプロイすると使えます');
           const names = Object.keys(v).filter((k) => k !== 'default');
           const sm = new vm.SyntheticModule(['default', ...names], function () { this.setExport('default', v); for (const k of names) this.setExport(k, v[k]); });
           await sm.link(() => {}); return sm;
@@ -492,15 +529,22 @@ function runnerMain() {
           }
           const name = builtinName(spec);
           if (name) return builtin(name);
-          throw new Error('"' + spec + '" は使えません。使える標準モジュール: ' + ALLOWED.join(', ') + '(npm のパッケージは使えません)');
+          if (nmRequire) {
+            try { return nmRequire(spec); } catch (e) {
+              if (e && e.code === 'MODULE_NOT_FOUND') throw new Error('"' + spec + '" が見つかりません。package.json の dependencies に書いてデプロイしてください');
+              throw e;
+            }
+          }
+          throw new Error('"' + spec + '" は使えません。使える標準モジュール: ' + ALLOWED.join(', ') + '。npm のパッケージは、package.json の dependencies に書いてデプロイすると使えます');
         };
         const fn = vm.runInThisContext('(function (exports, require, module, __filename, __dirname) {' + files[file] + '\n})', { filename: file });
         fn.call(m.exports, m.exports, req, m, file, dir);
         return m.exports;
       };
 
-      if (!has(files, 'server.js')) throw new Error('server.js がありません');
-      const mod = isEsm('server.js', files['server.js']) ? (await loadEsm('server.js')).namespace : load('server.js');
+      const entry = input.entry || 'server.js';
+      if (!has(files, entry)) throw new Error(entry + ' がありません');
+      const mod = isEsm(entry, files[entry]) ? (await loadEsm(entry)).namespace : load(entry);
       const R = input.req;
       let handler = typeof mod === 'function' ? mod : null;
       if (!handler && mod) {
@@ -509,7 +553,37 @@ function runnerMain() {
         else if (typeof mod[R.method] === 'function') handler = mod[R.method];
         else if (typeof mod[R.method.toLowerCase()] === 'function') handler = mod[R.method.toLowerCase()];
       }
-      if (!handler) throw new Error('server.js は関数を module.exports してください(例: module.exports = async (req) => ({ hello: "world" }))');
+      // Express / Koa / Fastify / http のリスナー(req, res を本物の HTTP として受け取る形)
+      const isApp = (f) => typeof f === 'function' && typeof f.use === 'function' && (typeof f.handle === 'function' || typeof f.listen === 'function');
+      let listener = null;
+      if (handler && isApp(handler)) { listener = handler; handler = null; }
+      else if (!handler && mod && typeof mod.callback === 'function' && typeof mod.use === 'function') listener = mod.callback();
+      else if (!handler && mod && typeof mod.ready === 'function' && typeof mod.routing === 'function') { await mod.ready(); listener = mod.routing; }
+      if (!handler && !listener && !capturedSrv) throw new Error(entry + ' は関数を module.exports してください(例: module.exports = async (req) => ({ hello: "world" }))。Express などの app を module.exports しても、app.listen() を呼んでもOKです');
+      if (!handler) {
+        let srv = capturedSrv;
+        if (!srv) { srv = origCreate.call(http, listener); await new Promise((r) => srv.listen(0, '127.0.0.1', r)); }
+        else if (!srv.listening) await new Promise((r) => srv.once('listening', r));
+        const R0 = input.req;
+        const headers = { ...R0.headers };
+        for (const k of ['content-length', 'transfer-encoding', 'connection', 'accept-encoding', 'expect']) delete headers[k];
+        const bodyBuf = R0.rawB64 ? Buffer.from(R0.rawB64, 'base64') : Buffer.alloc(0);
+        if (bodyBuf.length || !['GET', 'HEAD'].includes(R0.method)) headers['content-length'] = String(bodyBuf.length);
+        const reply = await new Promise((resolve, reject) => {
+          const rq = http.request({ host: '127.0.0.1', port: srv.address().port, method: R0.method, path: R0.path + (R0.qs ? '?' + R0.qs : ''), headers }, (rs) => {
+            const parts = [];
+            rs.on('data', (c) => parts.push(c));
+            rs.on('end', () => resolve({ status: rs.statusCode, headers: rs.headers, body: Buffer.concat(parts) }));
+            rs.on('error', reject);
+          });
+          rq.on('error', reject);
+          rq.end(bodyBuf);
+        });
+        const hh = {};
+        for (const [k, v] of Object.entries(reply.headers)) hh[k] = Array.isArray(v) ? v.join(', ') : String(v);
+        delete hh['content-length']; delete hh['transfer-encoding']; delete hh.connection;
+        return done({ status: reply.status, headers: hh, body: reply.body.toString('base64'), b64: true });
+      }
 
       let out = null;
       let resolveOut;
@@ -567,7 +641,7 @@ function runnerMain() {
 }
 const RUNNER_SRC = '(' + runnerMain.toString() + ')()';
 
-function runServerCode({ files, env, req, timeoutMs }) {
+function runServerCode({ files, env, req, timeoutMs, nm, entry }) {
   return new Promise((resolve) => {
     if (!PERM_FLAG) return resolve({ status: 503, error: 'このサーバーの Node.js はサーバー機能に対応していません(Node 22 以上が必要です)' });
     if (active >= MAX_ACTIVE) return resolve({ status: 503, error: 'いまサーバーが混み合っています。少し待ってからもう一度お試しください' });
@@ -577,7 +651,7 @@ function runServerCode({ files, env, req, timeoutMs }) {
     for (const [k, v] of Object.entries(env)) if (ENV_KEY_RE.test(k) && !ENV_RESERVED.test(k)) childEnv[k] = String(v);
     let child;
     try {
-      child = spawn(process.execPath, [PERM_FLAG, '--experimental-vm-modules', '--no-warnings', '--max-old-space-size=128', '-e', RUNNER_SRC], { env: childEnv, stdio: ['pipe', 'pipe', 'pipe'] });
+      child = spawn(process.execPath, [PERM_FLAG, ...(nm ? ['--allow-fs-read=' + nm] : []), '--experimental-vm-modules', '--no-warnings', '--max-old-space-size=160', '-e', RUNNER_SRC], { env: childEnv, stdio: ['pipe', 'pipe', 'pipe'] });
     } catch (e) {
       active--;
       return resolve({ status: 500, error: '実行を開始できませんでした: ' + e.message });
@@ -600,7 +674,247 @@ function runServerCode({ files, env, req, timeoutMs }) {
       } catch { finish({ status: 500, error: '応答を読み取れませんでした' }); }
     });
     child.stdin.on('error', () => {});
-    child.stdin.end(JSON.stringify({ files, req }));
+    child.stdin.end(JSON.stringify({ files, req, nm: nm || null, entry: entry || 'server.js' }));
+  });
+}
+
+// ======================================================================
+// npm パッケージ(package.json の dependencies をデプロイ時にインストールして保存する)
+//  ・npm のレジストリから直接ダウンロード(インストールスクリプトは実行しません)
+//  ・できあがった node_modules を圧縮して SerBANK に保存 → 実行するとき /tmp に展開
+// ======================================================================
+const NPM_REGISTRY = (process.env.NPM_REGISTRY || 'https://registry.npmjs.org').replace(/\/+$/, '');
+const MAX_NM_CHUNKS = 30;                    // 圧縮後 約1.3MB
+const MAX_NM_PKGS = 300;
+const MAX_NM_BYTES = 40 * 1024 * 1024;       // 展開後
+const NM_TIME_MS = 50000;
+const kNm = (id, hash, n) => `n_${id}_${hash}_${n}`;
+
+let semverLib = null;
+const semver = () => (semverLib = semverLib || require('semver'));
+
+const NM_SKIP_EXT = /\.(md|markdown|map|ts|mts|cts|tsx|flow|c|cc|cpp|h|hpp|gyp|gypi|yml|yaml|npmignore|log|node|exe|dll|so|dylib)$/i;
+const NM_SKIP_DIR = /^(tests?|__tests__|spec|docs?|examples?|\.github|benchmarks?)\//i;
+const NM_SKIP_NAME = /^(license|licence|changelog|history|authors|contributors|readme|notice)(\.[a-z]+)?$/i;
+const NM_PKG_KEEP = ['name', 'version', 'main', 'exports', 'imports', 'type', 'bin', 'browser'];
+
+function nmKeep(rel) {
+  if (NM_SKIP_DIR.test(rel)) return false;
+  const base = rel.split('/').pop();
+  if (NM_SKIP_NAME.test(base)) return false;
+  if (rel !== 'package.json' && NM_SKIP_EXT.test(base)) return false;
+  return true;
+}
+
+function untar(buf, onFile) {
+  let off = 0, longName = null, pax = null;
+  const z = (s) => s.replace(/\0[\s\S]*$/, '');
+  while (off + 512 <= buf.length) {
+    const h = buf.subarray(off, off + 512);
+    if (h.every((b) => b === 0)) break;
+    let name = z(h.toString('utf8', 0, 100));
+    const size = parseInt(z(h.toString('ascii', 124, 136)).trim() || '0', 8) || 0;
+    const type = h[156] ? String.fromCharCode(h[156]) : '0';
+    const prefix = z(h.toString('utf8', 345, 500));
+    if (prefix) name = prefix + '/' + name;
+    const body = buf.subarray(off + 512, off + 512 + size);
+    off += 512 + Math.ceil(size / 512) * 512;
+    if (type === 'x') {
+      pax = {};
+      let i = 0;
+      while (i < body.length) {
+        const sp = body.indexOf(32, i); if (sp < 0) break;
+        const len = parseInt(body.toString('ascii', i, sp), 10); if (!len) break;
+        const rec = body.toString('utf8', sp + 1, i + len - 1);
+        const eq = rec.indexOf('=');
+        if (eq > 0) pax[rec.slice(0, eq)] = rec.slice(eq + 1);
+        i += len;
+      }
+    } else if (type === 'g') { /* 全体の情報は使わない */ }
+    else if (type === 'L') longName = z(body.toString('utf8'));
+    else if (type === '0') {
+      const n = (pax && pax.path) || longName || name;
+      pax = null; longName = null;
+      onFile(n, body);
+    } else { pax = null; longName = null; }
+  }
+}
+
+const platformOk = (list, cur) => {
+  if (!Array.isArray(list) || !list.length) return true;
+  const neg = list.filter((x) => x.startsWith('!')).map((x) => x.slice(1));
+  const pos = list.filter((x) => !x.startsWith('!'));
+  if (neg.includes(cur)) return false;
+  return pos.length ? pos.includes(cur) : true;
+};
+
+async function npmInstall(rootDeps, rootOptional) {
+  const sv = semver();
+  const t0 = Date.now();
+  const timeLeft = () => { if (Date.now() - t0 > NM_TIME_MS) throw fail(504, 'パッケージのインストールに時間がかかりすぎました。パッケージを減らしてみてください'); };
+  const packs = new Map();
+  const packument = async (name) => {
+    if (packs.has(name)) return packs.get(name);
+    const pr = (async () => {
+      timeLeft();
+      let res;
+      try {
+        res = await fetch(`${NPM_REGISTRY}/${name.replace('/', '%2f')}`, { headers: { accept: 'application/vnd.npm.install-v1+json; q=1.0, application/json; q=0.8' }, signal: AbortSignal.timeout(25000) });
+      } catch { throw fail(502, `npm のレジストリに接続できませんでした(${name})`); }
+      if (res.status === 404) throw fail(400, `npm パッケージ「${name}」が見つかりません`);
+      if (!res.ok) throw fail(502, `npm のレジストリがエラーを返しました(${name}: ${res.status})`);
+      return res.json();
+    })();
+    packs.set(name, pr);
+    return pr;
+  };
+
+  const tree = new Map();      // 'node_modules/a/node_modules/b' → { name, version, dist, install }
+  const warnings = [];
+  const queue = [];
+  const push = (from, name, range, optional) => queue.push({ from, name, range: String(range == null ? '' : range).trim(), optional });
+  for (const [n, r] of Object.entries(rootDeps)) push('', n, r, false);
+  for (const [n, r] of Object.entries(rootOptional || {})) push('', n, r, true);
+  const locOf = (from, name) => (from ? from + '/' : '') + 'node_modules/' + name;
+  const parentOf = (from) => { const i = from.lastIndexOf('/node_modules/'); return i < 0 ? '' : from.slice(0, i); };
+
+  while (queue.length) {
+    const batch = queue.splice(0, 16);
+    await Promise.all(batch.map((q) => {
+      let nm = q.name;
+      if (q.range.startsWith('npm:')) { const a = q.range.slice(4); const at = a.lastIndexOf('@'); nm = at > 0 ? a.slice(0, at) : a; }
+      q.real = nm;
+      if (/^(git|git\+|github:|http:|https:|file:|link:|workspace:)/.test(q.range) || /^[\w.-]+\/[\w.-]+(#.*)?$/.test(q.range)) {
+        if (q.optional) return null;
+        throw fail(400, `「${q.name}: ${q.range}」は使えません。npm のレジストリにあるパッケージだけ指定できます`);
+      }
+      return packument(nm).catch((e) => { if (q.optional) return null; throw e; });
+    }));
+    for (const q of batch) {
+      if (q.skip) continue;
+      timeLeft();
+      let range = q.range, real = q.real || q.name;
+      if (range.startsWith('npm:')) { const a = range.slice(4); const at = a.lastIndexOf('@'); range = at > 0 ? a.slice(at + 1) : ''; }
+      if (/^(git|git\+|github:|http:|https:|file:|link:|workspace:)/.test(q.range)) continue;
+      // いちばん近い場所から、すでに入っている同名パッケージを探す
+      let from = q.from, reuse = false, conflict = false;
+      for (;;) {
+        const ex = tree.get(locOf(from, q.name));
+        if (ex) { if (!range || range === '*' || range === 'latest' || sv.satisfies(ex.version, range, { includePrerelease: true })) reuse = true; else conflict = true; break; }
+        if (!from) break;
+        from = parentOf(from);
+      }
+      if (reuse) continue;
+      let pk;
+      try { pk = await packument(real); } catch (e) { if (q.optional) continue; throw e; }
+      const vers = pk.versions || {};
+      let ver = null;
+      const tags = pk['dist-tags'] || {};
+      if (!range || range === '*' || range === 'latest') ver = tags.latest;
+      else if (tags[range]) ver = tags[range];
+      else ver = sv.maxSatisfying(Object.keys(vers), range, { includePrerelease: false });
+      if (!ver || !vers[ver]) {
+        if (q.optional) continue;
+        throw fail(400, `「${q.name}@${q.range}」に合うバージョンが見つかりません`);
+      }
+      const m = vers[ver];
+      if (!platformOk(m.os, 'linux') || !platformOk(m.cpu, 'x64')) {
+        if (!q.optional) warnings.push(`${q.name}@${ver} はこのサーバー(Linux)用ではないためスキップしました`);
+        continue;
+      }
+      // 置き場所: 競合がなければ最上位(node_modules/名前)、あれば依頼元のすぐ下
+      let loc = conflict ? locOf(q.from, q.name) : locOf('', q.name);
+      if (tree.has(loc)) loc = locOf(q.from, q.name);
+      if (tree.size >= MAX_NM_PKGS) throw fail(413, `パッケージが多すぎます(最大${MAX_NM_PKGS}個)`);
+      tree.set(loc, { name: q.name, version: ver, dist: m.dist || {}, install: !!m.hasInstallScript });
+      if (m.hasInstallScript) warnings.push(`${q.name}@${ver}: インストール時のスクリプト(ネイティブのビルドなど)は実行されません`);
+      const childFrom = loc; // この子の依存は、このパッケージの場所を基点に探す
+      for (const [n, r] of Object.entries(m.dependencies || {})) push(childFrom, n, r, false);
+      for (const [n, r] of Object.entries(m.optionalDependencies || {})) push(childFrom, n, r, true);
+      const pm = m.peerDependenciesMeta || {};
+      for (const [n, r] of Object.entries(m.peerDependencies || {})) if (!(pm[n] && pm[n].optional)) push(childFrom, n, r, true);
+    }
+  }
+
+  // ダウンロードして、必要なファイルだけ取り出す
+  const files = {};
+  let total = 0;
+  await mapLimit([...tree.entries()], 8, async ([loc, info]) => {
+    timeLeft();
+    const url = info.dist && info.dist.tarball;
+    if (!url) throw fail(502, `${info.name}: ダウンロード先が分かりません`);
+    let buf;
+    try {
+      const res = await fetch(url, { signal: AbortSignal.timeout(40000) });
+      if (!res.ok) throw new Error(String(res.status));
+      buf = Buffer.from(await res.arrayBuffer());
+    } catch { throw fail(502, `${info.name}@${info.version} をダウンロードできませんでした`); }
+    if (info.dist.integrity && /^sha512-/.test(info.dist.integrity)) {
+      if (crypto.createHash('sha512').update(buf).digest('base64') !== info.dist.integrity.slice(7)) throw fail(502, `${info.name}: ダウンロードしたファイルが壊れています`);
+    } else if (info.dist.shasum && crypto.createHash('sha1').update(buf).digest('hex') !== info.dist.shasum) throw fail(502, `${info.name}: ダウンロードしたファイルが壊れています`);
+    let tar;
+    try { tar = zlib.gunzipSync(buf, { maxOutputLength: 60 * 1024 * 1024 }); } catch { throw fail(502, `${info.name}: 展開できませんでした`); }
+    untar(tar, (name, body) => {
+      const segs = name.split('/').slice(1);
+      if (!segs.length || segs.some((s) => s === '..' || s === '')) return;
+      const rel = segs.join('/');
+      if (!nmKeep(rel)) return;
+      let content;
+      if (rel === 'package.json') {
+        try {
+          const j = JSON.parse(body.toString('utf8')), o = {};
+          for (const k of NM_PKG_KEEP) if (j[k] !== undefined) o[k] = j[k];
+          content = Buffer.from(JSON.stringify(o));
+        } catch { content = body; }
+      } else content = body;
+      total += content.length;
+      if (total > MAX_NM_BYTES) throw fail(413, 'パッケージが大きすぎます');
+      const asText = Buffer.from(content.toString('utf8'), 'utf8').equals(content);
+      files[loc + '/' + rel] = asText ? ['t', content.toString('utf8')] : ['b', content.toString('base64')];
+    });
+  });
+  return { files, count: tree.size, size: total, warnings, list: [...tree.entries()].filter(([l]) => !l.includes('/node_modules/')).map(([, i]) => `${i.name}@${i.version}`).sort() };
+}
+
+// package.json から、インストールするパッケージの一覧と、保存の識別子(hash)を決める
+function npmPlan(pkgText) {
+  let j;
+  try { j = JSON.parse(pkgText); } catch { throw fail(400, 'package.json の形式が正しくありません(JSON のエラーです)'); }
+  if (!j || typeof j !== 'object' || Array.isArray(j)) throw fail(400, 'package.json の形式が正しくありません');
+  const pick = (o) => { const r = {}; if (o && typeof o === 'object' && !Array.isArray(o)) for (const [k, v] of Object.entries(o)) r[String(k)] = String(v); return r; };
+  const deps = pick(j.dependencies), opt = pick(j.optionalDependencies);
+  for (const k of Object.keys(opt)) delete deps[k];
+  const none = !Object.keys(deps).length && !Object.keys(opt).length;
+  const canon = JSON.stringify([Object.entries(deps).sort(), Object.entries(opt).sort(), NPM_REGISTRY]);
+  return { deps, opt, none, hash: crypto.createHash('sha1').update(canon).digest('hex').slice(0, 10), pkg: j };
+}
+
+// 実行するとき: SerBANK から node_modules を /tmp に展開する(同じ版は使い回す)
+const NM_BASE = path.join(require('os').tmpdir(), 'sitbank-nm');
+async function ensureModules(id, meta) {
+  if (!meta.nm) return null;
+  const dir = path.join(NM_BASE, `${id}-${meta.nm.hash}`);
+  return withLock('nm:' + dir, async () => {
+    if (fs.existsSync(path.join(dir, '.ok'))) return fs.realpathSync(dir);
+    const parts = await mapLimit(Array.from({ length: meta.nm.n }, (_, i) => i), 6, async (i) => {
+      const s = await getStr(kNm(id, meta.nm.hash, i));
+      if (s === null) throw fail(502, 'npm パッケージのデータが見つかりません。もう一度デプロイしてください');
+      return s;
+    });
+    const map = JSON.parse(zlib.gunzipSync(Buffer.from(parts.join(''), 'base64'), { maxOutputLength: 80 * 1024 * 1024 }).toString('utf8'));
+    fs.rmSync(dir, { recursive: true, force: true });
+    fs.mkdirSync(dir, { recursive: true });
+    const root = fs.realpathSync(dir);
+    for (const [p, [t, d]] of Object.entries(map)) {
+      const full = path.join(root, p);
+      if (!full.startsWith(root + path.sep) || !p.startsWith('node_modules/')) continue;
+      fs.mkdirSync(path.dirname(full), { recursive: true });
+      fs.writeFileSync(full, t === 't' ? d : Buffer.from(d, 'base64'));
+    }
+    fs.writeFileSync(path.join(root, '.ok'), '1');
+    // 同じプロジェクトの古い版を片づける
+    try { for (const n of fs.readdirSync(NM_BASE)) if (n.startsWith(id + '-') && n !== path.basename(dir)) fs.rmSync(path.join(NM_BASE, n), { recursive: true, force: true }); } catch { /* 無視 */ }
+    return root;
   });
 }
 
@@ -644,6 +958,9 @@ async function doDeploy(id, aid, entries) {
         continue;
       }
 
+      if (p === 'package-lock.json' || p === 'npm-shrinkwrap.json' || p === 'yarn.lock' || p === 'pnpm-lock.yaml') { seen.delete(p); continue; } // ロックファイルは使わない(自動でインストールするため)
+      if (p.split('/').includes('node_modules')) throw fail(400, `${p}: node_modules は入れないでください。package.json に dependencies を書けば、デプロイ時に自動でインストールします`);
+
       const ext = extOf(p);
       if (e.ticket) {
         const t = readTicket(e.ticket, id);
@@ -686,17 +1003,35 @@ async function doDeploy(id, aid, entries) {
     if (pubChunks.length > MAX_PUB_CHUNKS) throw fail(413, `公開ファイルが大きすぎます(圧縮後 約${Math.round(pubChunks.join('').length * 3 / 4 / 1024)}KB / 上限 約${Math.round(MAX_PUB_CHUNKS * CHUNK_CHARS * 3 / 4 / 1024)}KB)。画像や動画は、.png / .jpg / .mp4 などにするとアップロード方式になり、容量を使いません`);
     if (privChunks.length > MAX_PRIV_CHUNKS) throw fail(413, 'server.js と server/ フォルダが大きすぎます');
 
+    // npm パッケージ: package.json に dependencies があれば、ここでインストールして保存する(中身が前回と同じなら使い回す)
+    let nmMeta = null, nmChunks = [];
+    const pj = priv['package.json'];
+    if (pj) {
+      const plan = npmPlan(pj[1]);
+      if (!plan.none) {
+        if (meta.nm && meta.nm.hash === plan.hash) nmMeta = meta.nm;
+        else {
+          const inst = await npmInstall(plan.deps, plan.opt);
+          nmChunks = splitChunks(zlib.gzipSync(Buffer.from(JSON.stringify(inst.files)), { level: 9 }).toString('base64'));
+          if (nmChunks.length > MAX_NM_CHUNKS) throw fail(413, `パッケージが大きすぎます(圧縮後 約${Math.round(nmChunks.join('').length * 3 / 4 / 1024)}KB / 上限 約${Math.round(MAX_NM_CHUNKS * CHUNK_CHARS * 3 / 4 / 1024)}KB)。使わないパッケージを減らしてください`);
+          nmMeta = { hash: plan.hash, n: nmChunks.length, count: inst.count, size: inst.size, list: inst.list.slice(0, 60), warnings: inst.warnings.slice(0, 10) };
+        }
+      }
+    }
+    const entry = entryOf(priv);
+
     const ver = Date.now().toString(36);
     const writes = [
       ...pubChunks.map((s, i) => [kPub(id, ver, i), s]),
       ...privChunks.map((s, i) => [kPriv(id, ver, i), s]),
+      ...nmChunks.map((s, i) => [kNm(id, nmMeta.hash, i), s]),
     ];
     try {
       await mapLimit(writes, 6, ([k, s]) => putStr(k, s));
       const now = Date.now();
       const next = {
         ...meta, ver, dn: pubChunks.length, sn: privChunks.length, files: manifest, media,
-        hasServer: !!priv['server.js'], pend: [], updatedAt: now, deploys: (meta.deploys || 0) + 1,
+        hasServer: !!entry, entry: entry || null, nm: nmMeta, pend: [], updatedAt: now, deploys: (meta.deploys || 0) + 1,
       };
       await saveProject(id, next);
       // 古いデータの後片付け(失敗しても公開には影響しない)
@@ -705,6 +1040,7 @@ async function doDeploy(id, aid, entries) {
         for (let i = 0; i < (meta.dn || 0); i++) cleanup.push(delKey(kPub(id, meta.ver, i)));
         for (let i = 0; i < (meta.sn || 0); i++) cleanup.push(delKey(kPriv(id, meta.ver, i)));
       }
+      if (meta.nm && (!nmMeta || nmMeta.hash !== meta.nm.hash)) for (let i = 0; i < meta.nm.n; i++) cleanup.push(delKey(kNm(id, meta.nm.hash, i)));
       const keepIds = new Set(Object.values(media).map((m) => m.id));
       for (const m of Object.values(meta.media || {})) if (!keepIds.has(m.id)) cleanup.push(delFile(m.id));
       for (const pid of meta.pend || []) if (!keepIds.has(pid)) cleanup.push(delFile(pid));
@@ -726,6 +1062,7 @@ async function deleteProject(id, aid) {
       for (let i = 0; i < (meta.dn || 0); i++) jobs.push(delKey(kPub(id, meta.ver, i)));
       for (let i = 0; i < (meta.sn || 0); i++) jobs.push(delKey(kPriv(id, meta.ver, i)));
     }
+    if (meta.nm) for (let i = 0; i < meta.nm.n; i++) jobs.push(delKey(kNm(id, meta.nm.hash, i)));
     for (const m of Object.values(meta.media || {})) jobs.push(delFile(m.id));
     for (const pid of meta.pend || []) jobs.push(delFile(pid));
     await Promise.all(jobs);
@@ -742,7 +1079,7 @@ async function deleteProject(id, aid) {
 
 const summarize = (id, m) => ({
   id, name: m.name, url: siteBase(id), createdAt: m.createdAt, updatedAt: m.updatedAt,
-  deployed: !!m.ver, hasServer: !!m.hasServer, fileCount: (m.files || []).length,
+  deployed: !!m.ver, hasServer: !!m.hasServer, entry: m.entry || (m.hasServer ? 'server.js' : null), npm: m.nm ? { count: m.nm.count, size: m.nm.size, list: m.nm.list || [], warnings: m.nm.warnings || [] } : null, fileCount: (m.files || []).length,
 });
 
 // ======================================================================
@@ -988,9 +1325,9 @@ api.post('/projects/:id/server-test', authMw, wrap(async (req, res) => {
   for (const [k, v] of Object.entries(files)) privFiles[k] = v[1];
   const env = await loadEnv(id);
   const r = await runServerCode({
-    files: privFiles, timeoutMs: SERVER_TIMEOUT_MS,
+    files: privFiles, timeoutMs: SERVER_TIMEOUT_MS, nm: await ensureModules(id, meta), entry: meta.entry || 'server.js',
     env: Object.fromEntries(env.map((e) => [e.key, e.value])),
-    req: { method, path: u.pathname, query: Object.fromEntries(u.searchParams), headers: { 'content-type': 'application/json' }, body, text: bodyText },
+    req: { method, path: u.pathname, qs: u.search.replace(/^\?/, ''), query: Object.fromEntries(u.searchParams), headers: { 'content-type': 'application/json' }, body, text: bodyText, rawB64: Buffer.from(bodyText).toString('base64') },
   });
   res.json({
     status: r.status, ms: r.ms, headers: r.headers || {}, logs: r.logs || [], error: r.error || null, stack: r.stack || null,
@@ -1268,9 +1605,9 @@ function siteMain(P) { return wrap(async (req, res) => {
     const headers = { ...req.headers };
     delete headers.cookie;
     const r = await runServerCode({
-      files: privFiles, timeoutMs: SERVER_TIMEOUT_MS,
+      files: privFiles, timeoutMs: SERVER_TIMEOUT_MS, nm: await ensureModules(id, meta), entry: meta.entry || 'server.js',
       env: Object.fromEntries(env.map((e) => [e.key, e.value])),
-      req: { method: req.method, path: '/' + rel, query: req.query, headers, body, text },
+      req: { method: req.method, path: '/' + rel, qs: req.originalUrl.includes('?') ? req.originalUrl.slice(req.originalUrl.indexOf('?') + 1) : '', query: req.query, headers, body, text, rawB64: raw.toString('base64') },
     });
     res.set('Cache-Control', 'no-store');
     if (r.error) return res.status(r.status >= 400 ? r.status : 500).json({ error: r.error });
