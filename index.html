@@ -1382,7 +1382,8 @@ module.exports = async (req) =&gt; {
   // ======================================================================
   // 診断ログ(ログインできないときの原因調べ用。右下の「診断」から開く)
   // ======================================================================
-  const BUILD = '2026-10-30-diag3';
+  const BUILD = '2026-10-30-diag4';
+  const gakuDirect = () => { const f = document.querySelector('iframe[title="GAKU acct"]') || document.querySelector('iframe'); return f ? f.src.replace(/\?embed=1.*$/, '') : '#'; };
   const DIAG = [];
   const t0 = Date.now();
   function dlog(kind, msg) {
@@ -1428,7 +1429,7 @@ module.exports = async (req) =&gt; {
     if (st && !st.dataset.silent) {
       st.dataset.silent = '1';
       st.className = 'status err';
-      st.innerHTML = '<span>GAKU acct の枠から応答がありません。枠が真っ白・エラーのときは、Google に学校のアカウントでログインしているか、学校のフィルターやブラウザの設定(サードパーティ Cookie)を確認してください。</span><button class="btn sm" data-act="gaku-reload">枠を読み込み直す</button><button class="btn sm" data-act="open-diag">診断</button>';
+      st.innerHTML = `<span>GAKU acct の枠から応答がありません。枠が真っ白・エラーのときは、Google に学校のアカウントでログインしているか、学校のフィルターやブラウザの設定(サードパーティ Cookie)を確認してください。</span><button class="btn sm" data-act="gaku-reload">枠を読み込み直す</button><a class="btn sm" href="${gakuDirect()}" target="_blank" rel="noopener">GAKU acct を直接開く</a><button class="btn sm" data-act="open-diag">診断</button>`;
       dlog('枠', '10秒たっても GAKU acct から信号が届かない');
     }
     if (!silentRetried && Date.now() - t0 > 14000) { silentRetried = true; dlog('枠', '枠を自動で読み込み直します'); reloadGaku(); }
@@ -1471,7 +1472,7 @@ module.exports = async (req) =&gt; {
       box.innerHTML = `<div class="glass" style="width:min(720px,100%);max-height:92vh;display:flex;flex-direction:column;gap:10px;padding:16px;border-radius:20px">
         <div class="row" style="justify-content:space-between"><b>診断ログ</b><span class="hint mono">build ${BUILD}</span></div>
         <textarea id="diag-text" readonly style="flex:1;min-height:46vh;width:100%;font:12px/1.5 ui-monospace,Menlo,monospace;border-radius:12px;border:1px solid rgba(0,0,0,.15);padding:10px;background:rgba(255,255,255,.85);color:#111;resize:none"></textarea>
-        <div class="row"><button class="btn primary" id="diag-run">自動チェックを実行</button><button class="btn" id="diag-copy">コピー</button><button class="btn" id="diag-close" style="margin-left:auto">閉じる</button></div>
+        <div class="row"><button class="btn primary" id="diag-run">自動チェックを実行</button><button class="btn" id="diag-copy">コピー</button><a class="btn" id="diag-direct" target="_blank" rel="noopener">GAKU acct を直接開く</a><button class="btn" id="diag-close" style="margin-left:auto">閉じる</button></div>
         <div class="hint">「コピー」を押して、そのまま貼り付けて送ってください(パスワードや確認コードそのものは含まれません)。</div></div>`;
       document.body.appendChild(box);
       box.querySelector('#diag-close').onclick = () => { box.hidden = true; };
@@ -1482,6 +1483,7 @@ module.exports = async (req) =&gt; {
       };
     }
     box.hidden = false;
+    box.querySelector('#diag-direct').href = gakuDirect();
     const ta = box.querySelector('#diag-text'); ta.value = DIAG.join('\n'); ta.scrollTop = ta.scrollHeight;
   }
   const dbtn = document.createElement('button');
