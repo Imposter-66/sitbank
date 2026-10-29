@@ -265,10 +265,11 @@
   <div class="glass login-card">
     <h2>GAKU acct でログイン</h2>
     <p class="sub">クラス・出席番号・パスワード(4けた)を入力してください</p>
+    <div id="login-status" class="status"></div>
     <div class="gaku-frame">
       <iframe src="https://script.google.com/a/macros/school.kasugai.ed.jp/s/AKfycbyDnabgy3qc0L6Y4cfwW53tyzPMPS2thg1nd6mAvtIHa5YURK3Tui4c7vCUWt47sCow/exec?embed=1" width="420" height="520" style="border:0;border-radius:12px;max-width:100%" allow="clipboard-write" title="GAKU acct"></iframe>
     </div>
-    <div id="login-status" class="status"></div>
+    <div id="login-debug" class="hint" style="margin-top:8px;font-size:11px;opacity:.7"></div>
   </div>
   <div class="steps3">
     <div class="glass"><b><i>1</i>ログイン</b>GAKU acct のアカウントで入ります</div>
@@ -564,7 +565,15 @@ var GakuAcct = (function () {
     setLoginStatus((r && r.message) || '確認コードをもらえませんでした。ページを開き直してください', 'err');
   }
 
+  // GAKU acct からの信号を、画面の下に小さく出す(ログインできないときの手がかりになる)
+  const acctDebug = (d) => {
+    const el = $('#login-debug');
+    if (!el) return;
+    const t = new Date().toLocaleTimeString('ja-JP');
+    el.textContent = `GAKU acct: ${d.event}${d.via ? '(' + d.via + ')' : ''} ${t}${S.token ? ' / SiTBANK: ログイン済み' : ''}`;
+  };
   GakuAcct.on((d) => {
+    acctDebug(d);
     if (S.token) return;
     if (d.event === 'login') {
       setLoginStatus('確認しています…', 'busy');
@@ -581,6 +590,18 @@ var GakuAcct = (function () {
       setLoginStatus('', '');
     }
   });
+
+  // 信号を取りこぼしても入れるように、ログイン画面が出ているあいだ、GAKU acct に確認コードを定期的に聞く
+  let polling = false;
+  setInterval(async () => {
+    if (polling || S.token || exchanging || loggingOut || document.hidden) return;
+    if ($('#view-login').classList.contains('offscreen')) return;
+    polling = true;
+    try {
+      const r = await Promise.race([GakuAcct.call('proof'), new Promise((x) => setTimeout(() => x(null), 8000))]);
+      if (r && r.ok && r.code && !S.token && !exchanging && !loggingOut) exchange(r.code);
+    } catch { /* 無視 */ } finally { polling = false; }
+  }, 3000);
 
   async function enterApp(initial) {
     const me = await api('GET', '/api/me', undefined, { noAuthRedirect: !!initial });
