@@ -766,11 +766,12 @@ var GakuAcct = (function () {
   // ======================================================================
   // ファイルの扱い
   // ======================================================================
-  const TEXT_EXT = new Set(['html', 'htm', 'css', 'js', 'mjs', 'cjs', 'json', 'svg', 'txt', 'md', 'xml', 'csv', 'tsv', 'map', 'webmanifest', 'yml', 'yaml']);
-  const BIN_EXT = new Set(['ico', 'woff', 'woff2', 'ttf', 'otf', 'pdf', 'mp3', 'wav', 'ogg', 'm4a', 'bmp']);
+  const TEXT_EXT = new Set(['html', 'htm', 'css', 'js', 'mjs', 'cjs', 'json', 'svg', 'txt', 'md', 'xml', 'csv', 'tsv', 'map', 'webmanifest', 'yml', 'yaml'].concat(['ada','adb','adoc','ads','ahk','applescript','asm','asp','aspx','astro','atom','au3','awk','babelrc','bash','bat','bazel','bzl','c','cairo','cbl','cc','cfg','clj','cljc','cljs','cmake','cmd','cob','coffee','conf','cpp','cs','cshtml','csproj','csx','cts','cu','cuh','cxx','d','dart','dhall','diff','dockerfile','dockerignore','dtd','editorconfig','edn','ejs','el','elm','erb','erl','eslintrc','ex','example','exs','f','f90','f95','fish','for','frag','fs','fsi','fsx','gcode','gd','gemspec','geojson','gitattributes','gitignore','glsl','go','gpx','gql','gradle','graphql','groovy','h','handlebars','hbs','hcl','hh','hlsl','hpp','hrl','hs','hxx','ics','ini','ipynb','j2','jade','java','jinja','jinja2','jl','json5','jsonc','jsonl','jsp','jsx','kdl','kml','ksh','kt','kts','less','lhs','liquid','lisp','lock','log','lrc','lsp','lua','m','makefile','markdown','mdx','mk','ml','mli','mm','mod','move','mtl','mts','mustache','ndjson','nim','nix','njk','npmrc','nvmrc','obj','org','pas','patch','php','phtml','pl','plist','pm','pom','pp','prettierrc','prisma','properties','proto','ps1','psm1','pug','purs','pxd','py','pyi','pyw','pyx','qmd','r','rake','razor','rb','re','rei','res','rkt','rmd','ron','rs','rss','rst','rtf','s','sample','sass','sbt','scad','scala','scm','scpt','scss','sed','sh','sln','sol','sql','srt','stl','styl','sub','sum','sv','svelte','swift','t','tcl','template','tex','text','tf','tfvars','toml','tpl','tres','ts','tscn','tsx','twig','v','vb','vbs','vcf','vcxproj','vert','vhd','vhdl','vtt','vue','vy','wast','wat','wgsl','wsf','xsd','xsl','xslt','zig','zsh']));
+  const PLAIN_NAMES = new Set(['makefile','dockerfile','procfile','gemfile','rakefile','license','licence','readme','changelog','authors','contributors','notice','cname','pipfile','vagrantfile','jenkinsfile','brewfile','podfile','fastfile','justfile','codeowners','requirements']);
+const BIN_EXT = new Set(['ico', 'woff', 'woff2', 'ttf', 'otf', 'pdf', 'mp3', 'wav', 'ogg', 'm4a', 'bmp', 'wasm']);
   const MEDIA_EXT = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'avif', 'mp4', 'mov', 'webm']);
   const VIDEO_EXT = new Set(['mp4', 'mov', 'webm']);
-  const extOf = (p) => { const n = p.split('/').pop(); const i = n.lastIndexOf('.'); return i < 0 ? '' : n.slice(i + 1).toLowerCase(); };
+  const extOf = (p) => { const n = p.split('/').pop(); const i = n.lastIndexOf('.'); if (i < 0) return PLAIN_NAMES.has(n.toLowerCase()) ? 'txt' : ''; return n.slice(i + 1).toLowerCase(); };
   // サーバーと同じルール: どの言語の文字も、スペース(先頭・末尾も)、あらゆる記号・絵文字もOK
   // だめなもの: / (フォルダの区切り)、制御文字、「.」「..」だけの名前
   function segOk(s) {
@@ -783,7 +784,7 @@ var GakuAcct = (function () {
   const isPrivate = (p) => p === 'server.js' || p === 'package.json' || p.startsWith('server/');
   function kindOf(p) {
     const e = extOf(p);
-    if (isPrivate(p)) return ['js', 'mjs', 'cjs', 'json'].includes(e) ? 'x' : null;
+    if (isPrivate(p)) return TEXT_EXT.has(e) ? 'x' : null;
     if (MEDIA_EXT.has(e)) return 'm';
     if (TEXT_EXT.has(e)) return 't';
     if (BIN_EXT.has(e)) return 'b';
@@ -823,7 +824,7 @@ var GakuAcct = (function () {
       const bad = checkPath(path);
       if (bad) { notes.push(`${path}: ${bad}`); continue; }
       const kind = kindOf(path);
-      if (!kind) { notes.push(`${path}: この種類は公開できません`); continue; }
+      if (!kind) { notes.push(`${path}: この種類のファイルは扱えません(.envや鍵ファイルなど)`); continue; }
       const f = it.file;
       let rec = { path, kind, status: 'new', size: f.size };
       if (kind === 'm') {
@@ -1090,7 +1091,7 @@ module.exports = async (req) => {
     if (v === null) return;
     const path = v.trim().normalize('NFC').replace(/^\/+/, '');
     const k = kindOf(path);
-    const bad = checkPath(path) || (k === null ? 'この種類は作れません' : (k === 'm' || k === 'b') ? '画像などはドロップで追加してください' : null);
+    const bad = checkPath(path) || (k === null ? 'この種類のファイルは作れません' : (k === 'm' || k === 'b') ? '画像などはドロップで追加してください' : null);
     if (bad) return toast(bad, 'err');
     editFile(path);
   }
