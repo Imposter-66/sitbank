@@ -62,8 +62,9 @@ function segOk(s) {
 const ENV_KEY_RE = /^[A-Za-z_][A-Za-z0-9_]{0,49}$/;
 const ENV_RESERVED = /^(NODE_|LD_|DYLD_|UV_|OPENSSL_|SSL_CERT|SITBANK)/i;
 
-const TEXT_EXT = new Set(['html', 'htm', 'css', 'js', 'mjs', 'cjs', 'json', 'svg', 'txt', 'md', 'xml', 'csv', 'tsv', 'map', 'webmanifest', 'yml', 'yaml']);
-const BIN_EXT = new Set(['ico', 'woff', 'woff2', 'ttf', 'otf', 'pdf', 'mp3', 'wav', 'ogg', 'm4a', 'bmp']);
+const TEXT_EXT = new Set(['html', 'htm', 'css', 'js', 'mjs', 'cjs', 'json', 'svg', 'txt', 'md', 'xml', 'csv', 'tsv', 'map', 'webmanifest', 'yml', 'yaml'].concat(['ada','adb','adoc','ads','ahk','applescript','asm','asp','aspx','astro','atom','au3','awk','babelrc','bash','bat','bazel','bzl','c','cairo','cbl','cc','cfg','clj','cljc','cljs','cmake','cmd','cob','coffee','conf','cpp','cs','cshtml','csproj','csx','cts','cu','cuh','cxx','d','dart','dhall','diff','dockerfile','dockerignore','dtd','editorconfig','edn','ejs','el','elm','erb','erl','eslintrc','ex','example','exs','f','f90','f95','fish','for','frag','fs','fsi','fsx','gcode','gd','gemspec','geojson','gitattributes','gitignore','glsl','go','gpx','gql','gradle','graphql','groovy','h','handlebars','hbs','hcl','hh','hlsl','hpp','hrl','hs','hxx','ics','ini','ipynb','j2','jade','java','jinja','jinja2','jl','json5','jsonc','jsonl','jsp','jsx','kdl','kml','ksh','kt','kts','less','lhs','liquid','lisp','lock','log','lrc','lsp','lua','m','makefile','markdown','mdx','mk','ml','mli','mm','mod','move','mtl','mts','mustache','ndjson','nim','nix','njk','npmrc','nvmrc','obj','org','pas','patch','php','phtml','pl','plist','pm','pom','pp','prettierrc','prisma','properties','proto','ps1','psm1','pug','purs','pxd','py','pyi','pyw','pyx','qmd','r','rake','razor','rb','re','rei','res','rkt','rmd','ron','rs','rss','rst','rtf','s','sample','sass','sbt','scad','scala','scm','scpt','scss','sed','sh','sln','sol','sql','srt','stl','styl','sub','sum','sv','svelte','swift','t','tcl','template','tex','text','tf','tfvars','toml','tpl','tres','ts','tscn','tsx','twig','v','vb','vbs','vcf','vcxproj','vert','vhd','vhdl','vtt','vue','vy','wast','wat','wgsl','wsf','xsd','xsl','xslt','zig','zsh']));
+const PLAIN_NAMES = new Set(['makefile','dockerfile','procfile','gemfile','rakefile','license','licence','readme','changelog','authors','contributors','notice','cname','pipfile','vagrantfile','jenkinsfile','brewfile','podfile','fastfile','justfile','codeowners','requirements']);
+const BIN_EXT = new Set(['ico', 'woff', 'woff2', 'ttf', 'otf', 'pdf', 'mp3', 'wav', 'ogg', 'm4a', 'bmp', 'wasm']);
 const MEDIA = {
   png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp',
   avif: 'image/avif', mp4: 'video/mp4', mov: 'video/quicktime', webm: 'video/webm',
@@ -74,7 +75,7 @@ const MIME = {
   md: 'text/plain', xml: 'application/xml', csv: 'text/csv', tsv: 'text/tab-separated-values',
   map: 'application/json', webmanifest: 'application/manifest+json', yml: 'text/plain', yaml: 'text/plain',
   ico: 'image/x-icon', woff: 'font/woff', woff2: 'font/woff2', ttf: 'font/ttf', otf: 'font/otf',
-  pdf: 'application/pdf', mp3: 'audio/mpeg', wav: 'audio/wav', ogg: 'audio/ogg', m4a: 'audio/mp4', bmp: 'image/bmp',
+  pdf: 'application/pdf', mp3: 'audio/mpeg', wav: 'audio/wav', ogg: 'audio/ogg', m4a: 'audio/mp4', bmp: 'image/bmp', wasm: 'application/wasm',
 };
 
 // ======================================================================
@@ -87,7 +88,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const b64u = (b) => Buffer.from(b).toString('base64url');
 const sha1 = (s) => crypto.createHash('sha1').update(s).digest('hex');
 const escHtml = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-const extOf = (p) => { const n = p.split('/').pop(); const i = n.lastIndexOf('.'); return i < 0 ? '' : n.slice(i + 1).toLowerCase(); };
+const extOf = (p) => { const n = p.split('/').pop(); const i = n.lastIndexOf('.'); if (i < 0) return PLAIN_NAMES.has(n.toLowerCase()) ? 'txt' : ''; return n.slice(i + 1).toLowerCase(); };
 
 function safeEq(a, b) {
   const x = Buffer.from(String(a)), y = Buffer.from(String(b));
@@ -977,7 +978,7 @@ async function doDeploy(id, aid, entries, opts = {}) {
       if (typeof e.data !== 'string') throw fail(400, `${p}: 中身がありません`);
 
       if (isPrivatePath(p)) {
-        if (!isText || !['js', 'mjs', 'cjs', 'json'].includes(ext)) throw fail(400, `${p}: server.js と server/ フォルダには .js / .mjs / .cjs / .json だけ置けます`);
+        if (!isText || !TEXT_EXT.has(ext)) throw fail(400, `${p}: server.js と server/ フォルダには文字のファイル(プログラムや設定)だけ置けます`);
         priv[p] = ['t', e.data];
         manifest.push({ p, s: Buffer.byteLength(e.data), k: 'x' });
       } else {
@@ -1115,7 +1116,9 @@ app.use((req, res, next) => {
   next();
 });
 
-const indexHtml = fs.readFileSync(path.join(__dirname, 'index.html'), 'utf8');
+// 画面の GAKU acct の枠のURLは、環境変数 GAKU_ACCT_URL(本人確認と同じ)に合わせる。GAKU acct のURLを変えたときは、環境変数だけ直せばよい
+const indexHtml = fs.readFileSync(path.join(__dirname, 'index.html'), 'utf8')
+  .replace(/(<iframe src=")[^"]*("[^>]*title="GAKU acct")/, (m, a1, a2) => a1 + escHtml(GAKU_URL.replace(/[?#].*$/, '') + '?embed=1') + a2);
 
 // サイトのアイコン(index.html に埋め込んだ画像を、/favicon.ico と /icon.png でも配る)
 const iconM = /rel="icon"[^>]*href="data:image\/png;base64,([A-Za-z0-9+/=]+)"/.exec(indexHtml);
@@ -1720,7 +1723,7 @@ a{display:block;padding:12px 16px;border-radius:14px;background:rgba(255,255,255
   const e = pub[hit.p];
   if (!e) return siteText(res, 404, '404 Not Found');
   const ext = extOf(hit.p);
-  const mime = MIME[ext] || 'application/octet-stream';
+  const mime = MIME[ext] || (TEXT_EXT.has(ext) ? 'text/plain' : 'application/octet-stream');
   res.type(e[0] === 't' ? `${mime}; charset=utf-8` : mime);
   if (mode === 'shim') return res.send(injectShim(e[1]));
   return res.send(e[0] === 't' ? e[1] : Buffer.from(e[1], 'base64'));
