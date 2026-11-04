@@ -68,6 +68,9 @@ const BIN_EXT = new Set(['ico', 'woff', 'woff2', 'ttf', 'otf', 'pdf', 'mp3', 'wa
 const MEDIA = {
   png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp',
   avif: 'image/avif', mp4: 'video/mp4', mov: 'video/quicktime', webm: 'video/webm',
+  // アプリ(ダウンロード配布用。サーバーでは実行されません)
+  apk: 'application/vnd.android.package-archive', exe: 'application/vnd.microsoft.portable-executable', msi: 'application/x-msi',
+  dmg: 'application/x-apple-diskimage', zip: 'application/zip', jar: 'application/java-archive',
 };
 const MIME = {
   html: 'text/html', htm: 'text/html', css: 'text/css', js: 'text/javascript', mjs: 'text/javascript',
@@ -995,7 +998,7 @@ async function doDeploy(id, aid, entries, opts = {}) {
       }
     }
 
-    if (Object.keys(media).length > MAX_MEDIA) throw fail(400, `画像・動画は最大${MAX_MEDIA}個までです`);
+    if (Object.keys(media).length > MAX_MEDIA) throw fail(400, `画像・動画・アプリは最大${MAX_MEDIA}個までです`);
     // index.html も server.js も必須ではない(abc.html だけ、画像だけ、でもデプロイできる)
     if (!manifest.length) throw fail(400, 'ファイルがありません');
 
@@ -1287,7 +1290,7 @@ api.post('/projects/:id/media', authMw,
     let p;
     try { p = cleanPath(decodeURIComponent(req.get('x-site-path') || '')); } catch (e) { throw e.status ? e : fail(400, 'ファイル名が正しくありません'); }
     const type = MEDIA[extOf(p)];
-    if (!type) throw fail(415, '対応していない種類です(PNG / JPEG / GIF / WebP / AVIF / MP4 / MOV / WebM)');
+    if (!type) throw fail(415, '対応していない種類です(画像・動画・アプリ: PNG / JPEG / GIF / WebP / AVIF / MP4 / MOV / WebM / APK / EXE / MSI / DMG / ZIP / JAR)');
     const buf = req.body;
     if (!Buffer.isBuffer(buf) || !buf.length) throw fail(400, 'ファイルが空です');
     if (buf.length > MAX_MEDIA_BYTES) throw fail(413, `ファイルが大きすぎます(${Math.round(MAX_MEDIA_BYTES / 1048576)}MBまで)`);
