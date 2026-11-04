@@ -769,7 +769,8 @@ var GakuAcct = (function () {
   const TEXT_EXT = new Set(['html', 'htm', 'css', 'js', 'mjs', 'cjs', 'json', 'svg', 'txt', 'md', 'xml', 'csv', 'tsv', 'map', 'webmanifest', 'yml', 'yaml'].concat(['ada','adb','adoc','ads','ahk','applescript','asm','asp','aspx','astro','atom','au3','awk','babelrc','bash','bat','bazel','bzl','c','cairo','cbl','cc','cfg','clj','cljc','cljs','cmake','cmd','cob','coffee','conf','cpp','cs','cshtml','csproj','csx','cts','cu','cuh','cxx','d','dart','dhall','diff','dockerfile','dockerignore','dtd','editorconfig','edn','ejs','el','elm','erb','erl','eslintrc','ex','example','exs','f','f90','f95','fish','for','frag','fs','fsi','fsx','gcode','gd','gemspec','geojson','gitattributes','gitignore','glsl','go','gpx','gql','gradle','graphql','groovy','h','handlebars','hbs','hcl','hh','hlsl','hpp','hrl','hs','hxx','ics','ini','ipynb','j2','jade','java','jinja','jinja2','jl','json5','jsonc','jsonl','jsp','jsx','kdl','kml','ksh','kt','kts','less','lhs','liquid','lisp','lock','log','lrc','lsp','lua','m','makefile','markdown','mdx','mk','ml','mli','mm','mod','move','mtl','mts','mustache','ndjson','nim','nix','njk','npmrc','nvmrc','obj','org','pas','patch','php','phtml','pl','plist','pm','pom','pp','prettierrc','prisma','properties','proto','ps1','psm1','pug','purs','pxd','py','pyi','pyw','pyx','qmd','r','rake','razor','rb','re','rei','res','rkt','rmd','ron','rs','rss','rst','rtf','s','sample','sass','sbt','scad','scala','scm','scpt','scss','sed','sh','sln','sol','sql','srt','stl','styl','sub','sum','sv','svelte','swift','t','tcl','template','tex','text','tf','tfvars','toml','tpl','tres','ts','tscn','tsx','twig','v','vb','vbs','vcf','vcxproj','vert','vhd','vhdl','vtt','vue','vy','wast','wat','wgsl','wsf','xsd','xsl','xslt','zig','zsh']));
   const PLAIN_NAMES = new Set(['makefile','dockerfile','procfile','gemfile','rakefile','license','licence','readme','changelog','authors','contributors','notice','cname','pipfile','vagrantfile','jenkinsfile','brewfile','podfile','fastfile','justfile','codeowners','requirements']);
 const BIN_EXT = new Set(['ico', 'woff', 'woff2', 'ttf', 'otf', 'pdf', 'mp3', 'wav', 'ogg', 'm4a', 'bmp', 'wasm']);
-  const MEDIA_EXT = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'avif', 'mp4', 'mov', 'webm']);
+  const MEDIA_EXT = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'avif', 'mp4', 'mov', 'webm', 'apk', 'exe', 'msi', 'dmg', 'zip', 'jar']);
+  const APP_EXT = new Set(['apk', 'exe', 'msi', 'dmg', 'zip', 'jar']);
   const VIDEO_EXT = new Set(['mp4', 'mov', 'webm']);
   const extOf = (p) => { const n = p.split('/').pop(); const i = n.lastIndexOf('.'); if (i < 0) return PLAIN_NAMES.has(n.toLowerCase()) ? 'txt' : ''; return n.slice(i + 1).toLowerCase(); };
   // サーバーと同じルール: どの言語の文字も、スペース(先頭・末尾も)、あらゆる記号・絵文字もOK
@@ -997,6 +998,7 @@ module.exports = async (req) => {
   function thumbHtml(f) {
     if (f.kind === 'm') {
       const v = VIDEO_EXT.has(extOf(f.path));
+      if (APP_EXT.has(extOf(f.path))) return icon('file');
       if (f.url && !v) return `<img src="${esc(f.url)}" alt="" loading="lazy">`;
       return icon(v ? 'video' : 'image');
     }
@@ -1048,7 +1050,7 @@ module.exports = async (req) => {
           </div>
         </div>
         ${S.files.size ? `<div class="files">${rows}</div>
-        <div class="legend"><span>画像・動画は${fmtBytes(S.cfg.maxMediaBytes || 4194304)}まで</span><span>server.js と server/ は非公開(サーバー用・サーバーを使わないなら不要)</span></div>` : ''}
+        <div class="legend"><span>画像・動画・アプリは${fmtBytes(S.cfg.maxMediaBytes || 4194304)}まで</span><span>server.js と server/ は非公開(サーバー用・サーバーを使わないなら不要)</span></div>` : ''}
       </div>
       <div class="dock glass"><div class="t">${dockText}</div>
         ${(!n && S.proj.deployed) ? `<button class="btn primary" data-act="redeploy" ${S.busy ? 'disabled' : ''}>${icon('rocket')}再デプロイ</button>` : `<button class="btn primary" data-act="deploy" ${(!n || S.busy) ? 'disabled' : ''}>${icon('rocket')}デプロイ</button>`}</div>`;
